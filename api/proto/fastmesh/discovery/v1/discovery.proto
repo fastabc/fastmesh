@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+// Shared discovery and enrollment protocol owned by the mesh SDK.
+package fastmesh.discovery.v1;
+option go_package = "github.com/fastabc/fastmesh/api/discovery/v1;discoveryv1";
+
+import "google/protobuf/any.proto";
+import "google/rpc/status.proto";
+
+service Discovery {
+  // Full ADS: each response carries a complete resource list for type_url.
+  rpc StreamAggregatedResources(stream DiscoveryRequest)
+      returns (stream DiscoveryResponse);
+
+  // Delta ADS: each response carries resource additions/updates/removals.
+  rpc DeltaAggregatedResources(stream DeltaDiscoveryRequest)
+      returns (stream DeltaDiscoveryResponse);
+
+  // Pull fallback for cold-start, diagnostics, and environments that block gRPC streams.
+  rpc FetchSnapshot(FetchSnapshotRequest) returns (FetchSnapshotResponse);
+}
+
+service Bootstrap {
+  // First join before steady-state SPIFFE identity is available.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+}
+
+message DiscoveryRequest {
+  string version_info = 1;
+  Node node = 2;
+  repeated string resource_names = 3;
+  string type_url = 4;
+  string response_nonce = 5;
+  google.rpc.Status error_detail = 6;
+}
+
+message DiscoveryResponse {
+  string version_info = 1;
+  repeated Resource resources = 2;
+  string nonce = 3;
+  string type_url = 4;
+  SnapshotSignature snapshot_signature = 5;
+	Node node = 6;
+}
+
+message DeltaDiscoveryRequest {
+  string type_url = 1;
+  Node node = 2;
+  map<string, string> initial_resource_versions = 3;
+  repeated string resource_names_subscribe = 4;
+  repeated string resource_names_unsubscribe = 5;
+  string response_nonce = 6;
+  google.rpc.Status error_detail = 7;
+}
+
+message DeltaDiscoveryResponse {
+  string system_version_info = 1;
+  repeated Resource resources = 2;
+  repeated string removed_resources = 3;
+  string nonce = 4;
+  string type_url = 5;
+  SnapshotSignature snapshot_signature = 6;
+	Node node = 7;
+}
+
+message FetchSnapshotRequest {
+  Node node = 1;
+  string tenant = 2;
+  string known_revision = 3;
+  string type_url = 4;
+}
+
+message FetchSnapshotResponse {
+  string type_url = 7;
+  string tenant = 1;
+  string revision = 2;
+  bytes snapshot = 3;
+  reserved 4;
+  SnapshotSignature snapshot_signature = 5;
+	Node node = 6;
+}
+
+message Resource {
+  string name = 1;
+  string version = 2;
+  google.protobuf.Any resource = 3;
+}
+
+message SnapshotSignature {
+  string algorithm = 1;
+  string key_id = 2;
+  bytes value = 3;
+  repeated bytes cert_chain = 4;
+}
+
+message Node {
+  string id = 1;
+  string spiffe_id = 2;
+  map<string, string> labels = 3;
+  repeated string capabilities = 4;
+	string intent = 5;
+	uint64 generation = 6;
+	string observed_intent = 7;
+	uint64 observed_generation = 8;
+}
+
+message RegisterRequest {
+  string join_token = 1;
+  string node_name = 2;
+  map<string, string> labels = 3;
+  repeated string capabilities = 4;
+  optional string agent_version = 5;
+  optional string runtime = 6;
+}
+
+message RegisterResponse {
+  string node_id = 1;
+  string trust_domain = 2;
+  repeated string controller_addresses = 3;
+}

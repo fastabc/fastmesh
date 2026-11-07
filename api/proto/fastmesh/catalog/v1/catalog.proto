@@ -1,0 +1,42 @@
+syntax = "proto3";
+package fastmesh.catalog.v1;
+option go_package = "github.com/fastabc/fastmesh/api/catalog/v1;catalogv1";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// Catalog shares the authenticated gRPC server and node admission with ADS.
+// Owner and tenant are deliberately absent from registration requests.
+service Catalog {
+  rpc RegisterEndpoint(RegisterEndpointRequest) returns (EndpointLease);
+  rpc SetEndpointServing(EndpointRequest) returns (EndpointLease);
+  rpc RenewEndpoint(EndpointRequest) returns (EndpointLease);
+  rpc DeregisterEndpoint(EndpointRequest) returns (google.protobuf.Empty);
+}
+
+message RegisterEndpointRequest {
+  string node_id = 1;
+  string service = 2;
+  string port = 3;
+  string instance_id = 4;
+  uint64 generation = 5;
+  string address = 6;
+  bool ready = 7;
+  // Ready describes initial readiness; serving/terminating express lifecycle state.
+  bool serving = 8;
+  bool terminating = 9;
+}
+
+message EndpointRequest {
+  bool serving = 5;
+  string node_id = 1;
+  string service = 2;
+  string instance_id = 3;
+  uint64 generation = 4;
+}
+
+message EndpointLease {
+  string owner = 1;
+  uint64 generation = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}

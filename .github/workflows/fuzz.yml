@@ -1,0 +1,48 @@
+name: Fuzz
+on:
+  schedule:
+    - cron: "23 3 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: internal/protocol/planwire
+            target: FuzzDecodePlan
+          - package: internal/protocol/planwire
+            target: FuzzPlanUnknownPermissions
+          - package: internal/node/dataplane
+            target: FuzzExecutablePlanFiltersDecodedPlans
+          - package: model
+            target: FuzzPrincipal
+          - package: model
+            target: FuzzHTTPMatchPrefixIsCleanStable
+          - package: policy/verify
+            target: FuzzVerifyPlanBody
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+      - name: Fuzz one input boundary
+        shell: bash
+        env:
+          FUZZ_PACKAGE: ${{ matrix.package }}
+          FUZZ_TARGET: ${{ matrix.target }}
+          GOWORK: "off"
+        run: |
+          go test "./$FUZZ_PACKAGE" -run '^$' -fuzz "^${FUZZ_TARGET}$" -fuzztime=60s -parallel=2 -timeout=180s 2>&1 | tee fuzz.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: |
+            fuzz.log
+            ${{ matrix.package }}/testdata/fuzz/${{ matrix.target }}/
+          if-no-files-found: error

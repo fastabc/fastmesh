@@ -1,0 +1,110 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+      - run: GOWORK=off go test ./...
+      - run: GOWORK=off go test -race ./...
+      - run: GOWORK=off go vet ./...
+      - name: Build isolated consumers and exercise local examples
+        run: python3 test/smoke/examples.py
+      - uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b
+        with:
+          version: "36.2"
+      - run: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+      - run: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
+      - run: go generate ./api/...
+      - run: git diff --exit-code -- api
+  etcd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FASTMESH_ETCD_ENDPOINTS: 127.0.0.1:2379
+      GOWORK: "off"
+    services:
+      etcd:
+        # Official v3.7.2 linux/amd64 image; keep the integration backend fixed.
+        image: gcr.io/etcd-development/etcd:v3.7.2@sha256:7dfd6ee2304f324032faf48547f12ecc340e463cba9da5ea13601cbb37e0781c
+        env:
+          ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+          ETCD_ADVERTISE_CLIENT_URLS: http://127.0.0.1:2379
+        ports:
+          - 2379:2379
+        options: >-
+          --health-cmd "/usr/local/bin/etcdctl endpoint health"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+      - name: Run real etcd integration tests
+        run: |
+          test -n "$FASTMESH_ETCD_ENDPOINTS"
+          go test -json -race -count=1 -timeout=180s ./store/etcd ./controller > etcd-tests.json
+      - name: Require executed integration tests
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          events = [json.loads(line) for line in Path("etcd-tests.json").read_text().splitlines()]
+          skipped = [e for e in events if e.get("Action") == "skip" and e.get("Test")]
+          failed = [e for e in events if e.get("Action") == "fail"]
+          passed = {(e["Package"], e["Test"]) for e in events if e.get("Action") == "pass" and e.get("Test")}
+          required = {
+              ("github.com/fastabc/fastmesh/store/etcd", "TestRevisionWatchConformance"),
+              ("github.com/fastabc/fastmesh/controller", "TestSharedWatchHeartbeatAndFollowerDiscoveryDuringHandoff/etcd"),
+          }
+          assert not skipped, f"Integration tests skipped: {skipped}"
+          assert not failed, f"Integration tests failed: {failed}"
+          assert required <= passed, f"Required tests did not pass: {required - passed}"
+          print(f"{len(passed)} tests/subtests passed against real etcd; no skips")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: etcd-test-results
+          path: etcd-tests.json
+          if-no-files-found: error
+
+  analysis:
+    runs-on: ubuntu-latest
+    env:
+      GOWORK: "off"
+      GOBIN: ${{ runner.temp }}/tools
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+      - name: Build scanners with the project toolchain
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+          go install golang.org/x/tools/cmd/deadcode@v0.52.0
+      - name: Scan reachable vulnerabilities
+        run: |
+          set -o pipefail
+          "$GOBIN/govulncheck" ./... | tee govulncheck.txt
+      - name: Report unreachable functions
+        if: always()
+        continue-on-error: true
+        run: |
+          "$GOBIN/deadcode" -test ./... > deadcode.txt
+          cat deadcode.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: static-analysis
+          path: |
+            govulncheck.txt
+            deadcode.txt
