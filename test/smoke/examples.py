@@ -89,18 +89,36 @@ def build(example, directory):
     return str(directory / "demo")
 
 
+def provision(binary, directory, flag, roles):
+    staging = directory / "provision"
+    run([binary, "-role", "setup", flag, str(staging)], directory)
+    # Move each bundle out of the provisioning tree. No runtime may depend on it.
+    for role in roles:
+        bundle = staging / role
+        assert sorted(p.name for p in bundle.glob("*-key.pem")) == [role + "-key.pem"]
+        shutil.move(str(bundle), str(directory / role))
+    staging.rmdir()
+
+
+def deliver_token(directory, roles):
+    for role in roles:
+        shutil.copy2(directory / "controller" / "join-token", directory / role / "join-token")
+
+
 def orders(directory):
     binary = build("orders-payments", directory)
     controller = address()
     base = [binary, "-controller", controller]
-    run(base + ["-role", "setup"], directory)
+    provision(binary, directory, "-state", ["controller", "payments", "orders"])
     processes = Processes(directory)
     try:
-        processes.start("controller", base + ["-role", "controller"], "controller-ready")
-        processes.start("payments", base + ["-role", "payments"], "payments-ready")
-        assert run(base + ["-role", "orders"], directory, 20).strip() == "paid"
+        processes.start("controller", base + ["-role", "controller", "-state", str(directory / "controller")], "controller-ready")
+        deliver_token(directory, ["payments", "orders"])
+        processes.start("payments", base + ["-role", "payments", "-state", str(directory / "payments"),
+                           "-listen", "0.0.0.0:0", "-advertise", "127.0.0.1:0"], "payments-ready")
+        assert run(base + ["-role", "orders", "-state", str(directory / "orders")], directory, 20).strip() == "paid"
         for path in ["/pay/../admin", "/pay/%2e%2e/admin", "/pay/%2E%2e/admin", "/pay//x", "/payment"]:
-            result = subprocess.run(base + ["-role", "orders", "-path", path], cwd=directory,
+            result = subprocess.run(base + ["-role", "orders", "-state", str(directory / "orders"), "-path", path], cwd=directory,
                                     env=ENV, text=True, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, timeout=20)
             assert result.returncode != 0 and "payments status: 403" in result.stdout, (path, result.stdout)
@@ -112,10 +130,11 @@ def orders(directory):
 def config(directory):
     binary = build("app-config", directory)
     control, service, app1, app2 = address(), address(), address(), address()
-    state = str(directory / "state")
-    base = [binary, "-dir", state, "-controller", control]
-    controller_args = base + ["-role", "controller", "-config-listen", service, "-advertise", service]
-    run(base + ["-role", "setup"], directory)
+    base = [binary, "-controller", control]
+    controller_args = base + ["-role", "controller", "-dir", str(directory / "controller")]
+    provider_args = base + ["-role", "config-server", "-dir", str(directory / "config-server"),
+                            "-config-listen", service, "-advertise", service]
+    provision(binary, directory, "-dir", ["controller", "config-server", "app-1", "app-2"])
     processes = Processes(directory)
 
     def revision(addr):
@@ -127,10 +146,15 @@ def config(directory):
 
     try:
         controller = processes.start("controller", controller_args, "controller-ready")
+        deliver_token(directory, ["config-server", "app-1", "app-2"])
+        provider = processes.start("config-server", provider_args, "config-server-ready")
         for name, addr in [("app-1", app1), ("app-2", app2)]:
-            processes.start(name, base + ["-role", "app", "-name", name, "-http", addr, "-poll", "200ms"])
+            processes.start(name, base + ["-role", "app", "-name", name, "-dir", str(directory / name), "-http", addr, "-poll", "200ms"])
         until(lambda: revision(app1) == revision(app2) == 1)
-        path = Path(state) / "app.json"
+        assert not (directory / "controller" / "state").exists()
+        for role in ["config-server", "app-1", "app-2"]:
+            assert (directory / role / "state").is_dir()
+        path = directory / "config-server" / "app.json"
         replacement = path.with_suffix(".next")
         replacement.write_text(json.dumps({"revision": 2, "greeting": "updated", "checkout_enabled": False}))
         replacement.replace(path)
@@ -138,12 +162,14 @@ def config(directory):
         path.write_text("{invalid")
         time.sleep(0.8)
         assert revision(app1) == revision(app2) == 2
+        processes.stop(provider)
         processes.stop(controller)
         assert revision(app1) == revision(app2) == 2
         path.write_text(json.dumps({"revision": 3, "greeting": "recovered", "checkout_enabled": True}))
         processes.start("controller-restarted", controller_args, "controller-ready")
+        processes.start("config-server-restarted", provider_args, "config-server-ready")
         until(lambda: revision(app1) == revision(app2) == 3)
-        print("app-config: two apps, hot update, invalid input, disconnect and recovery passed", flush=True)
+        print("app-config: four isolated bundles, hot update, invalid input, disconnect and recovery passed", flush=True)
     finally:
         processes.close()
 
@@ -151,12 +177,14 @@ def config(directory):
 def grpc(directory):
     binary = build("grpc", directory)
     base = [binary, "-controller", address()]
-    run(base + ["-role", "setup"], directory)
+    provision(binary, directory, "-state", ["controller", "payments", "orders"])
     processes = Processes(directory)
     try:
-        processes.start("controller", base + ["-role", "controller"], "controller-ready")
-        processes.start("payments", base + ["-role", "payments"], "payments-ready")
-        output = run(base + ["-role", "orders"], directory, 20)
+        processes.start("controller", base + ["-role", "controller", "-state", str(directory / "controller")], "controller-ready")
+        deliver_token(directory, ["payments", "orders"])
+        processes.start("payments", base + ["-role", "payments", "-state", str(directory / "payments"),
+                           "-listen", "0.0.0.0:0", "-advertise", "127.0.0.1:0"], "payments-ready")
+        output = run(base + ["-role", "orders", "-state", str(directory / "orders")], directory, 20)
         assert "health: SERVING" in output and "watch: PermissionDenied" in output, output
         print("grpc: isolated module, allowed unary and denied streaming method passed", flush=True)
     finally:

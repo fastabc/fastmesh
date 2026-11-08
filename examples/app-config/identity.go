@@ -89,13 +89,16 @@ func setup(dir string) error {
 	if err != nil {
 		return err
 	}
-	write := func(name, kind string, der []byte) error {
-		return os.WriteFile(filepath.Join(dir, name), pem.EncodeToMemory(&pem.Block{Type: kind, Bytes: der}), 0600)
+	write := func(role, name, kind string, der []byte) error {
+		return os.WriteFile(filepath.Join(dir, role, name), pem.EncodeToMemory(&pem.Block{Type: kind, Bytes: der}), 0600)
 	}
-	if err := write("ca.pem", "CERTIFICATE", der); err != nil {
-		return err
-	}
-	for i, role := range []string{"controller", "app-1", "app-2"} {
+	for i, role := range []string{"controller", "config-server", "app-1", "app-2"} {
+		if err := os.Mkdir(filepath.Join(dir, role), 0700); err != nil {
+			return err
+		}
+		if err := write(role, "ca.pem", "CERTIFICATE", ca.Raw); err != nil {
+			return err
+		}
 		pub, leafKey, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			return err
@@ -106,18 +109,18 @@ func setup(dir string) error {
 		if err != nil {
 			return err
 		}
-		if err := write(role+".pem", "CERTIFICATE", der); err != nil {
+		if err := write(role, role+".pem", "CERTIFICATE", der); err != nil {
 			return err
 		}
 		keyDER, err := x509.MarshalPKCS8PrivateKey(leafKey)
 		if err != nil {
 			return err
 		}
-		if err := write(role+"-key.pem", "PRIVATE KEY", keyDER); err != nil {
+		if err := write(role, role+"-key.pem", "PRIVATE KEY", keyDER); err != nil {
 			return err
 		}
 	}
-	return os.WriteFile(filepath.Join(dir, "app.json"), []byte(`{
+	return os.WriteFile(filepath.Join(dir, "config-server", "app.json"), []byte(`{
   "revision": 1,
   "greeting": "hello from configuration v1",
   "checkout_enabled": true

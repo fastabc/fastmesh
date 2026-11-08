@@ -50,18 +50,28 @@ Node 在发布执行状态前检查原始签名字节、接收方、有效期和
 ```sh
 GOWORK=off go build -o /tmp/fastmesh-config ./examples/app-config
 /tmp/fastmesh-config -role setup -dir /tmp/fastmesh-demo
-/tmp/fastmesh-config -role controller -dir /tmp/fastmesh-demo
+/tmp/fastmesh-config -role controller -dir /tmp/fastmesh-demo/controller
 ```
 
-看到 `controller-ready` 后，在两个终端分别运行：
+看到 `controller-ready` 后，交付 token，并在新终端启动独立配置服务：
 
 ```sh
-/tmp/fastmesh-config -role app -name app-1 -dir /tmp/fastmesh-demo -http 127.0.0.1:8081
-/tmp/fastmesh-config -role app -name app-2 -dir /tmp/fastmesh-demo -http 127.0.0.1:8082
+cp /tmp/fastmesh-demo/controller/join-token /tmp/fastmesh-demo/config-server/join-token
+cp /tmp/fastmesh-demo/controller/join-token /tmp/fastmesh-demo/app-1/join-token
+cp /tmp/fastmesh-demo/controller/join-token /tmp/fastmesh-demo/app-2/join-token
+
+/tmp/fastmesh-config -role config-server -dir /tmp/fastmesh-demo/config-server
+```
+
+等待 `config-server-ready`，在另外两个终端分别运行：
+
+```sh
+/tmp/fastmesh-config -role app -name app-1 -dir /tmp/fastmesh-demo/app-1 -http 127.0.0.1:8081
+/tmp/fastmesh-config -role app -name app-2 -dir /tmp/fastmesh-demo/app-2 -http 127.0.0.1:8082
 curl -fsS http://127.0.0.1:8081/config
 ```
 
-setup 需要新目录，生成有效期 24 小时的演示凭据。更新和部署方法见
+setup 需要新目录，为四个进程生成各自独立的部署目录及有效期 24 小时的演示凭据。更新和部署方法见
 [应用配置示例](examples/app-config/README.md)。发布标签后可用
 `go get github.com/fastabc/fastmesh@v0.1.0` 安装。
 
@@ -80,6 +90,7 @@ Controller 管理 Service、BindGrant、ServiceAccess 和 WorkloadGroup；提供
 
 | 内容 | 入口 |
 | --- | --- |
+| 示例总览 | [独立部署目录](examples/README.md) |
 | HTTP 服务调用 | [Orders / Payments](examples/orders-payments/README.md) |
 | gRPC 方法授权 | [gRPC 示例](examples/grpc/README.md) |
 | 应用配置分发 | [配置示例](examples/app-config/README.md) |

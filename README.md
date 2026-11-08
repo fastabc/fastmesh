@@ -56,18 +56,28 @@ defaults to 64 MiB of serialized topology; this is not a process memory limit.
 ```sh
 GOWORK=off go build -o /tmp/fastmesh-config ./examples/app-config
 /tmp/fastmesh-config -role setup -dir /tmp/fastmesh-demo
-/tmp/fastmesh-config -role controller -dir /tmp/fastmesh-demo
+/tmp/fastmesh-config -role controller -dir /tmp/fastmesh-demo/controller
 ```
 
-After `controller-ready`, start each application in a separate terminal:
+After `controller-ready`, deliver the token and start the separate config server in another terminal:
 
 ```sh
-/tmp/fastmesh-config -role app -name app-1 -dir /tmp/fastmesh-demo -http 127.0.0.1:8081
-/tmp/fastmesh-config -role app -name app-2 -dir /tmp/fastmesh-demo -http 127.0.0.1:8082
+cp /tmp/fastmesh-demo/controller/join-token /tmp/fastmesh-demo/config-server/join-token
+cp /tmp/fastmesh-demo/controller/join-token /tmp/fastmesh-demo/app-1/join-token
+cp /tmp/fastmesh-demo/controller/join-token /tmp/fastmesh-demo/app-2/join-token
+
+/tmp/fastmesh-config -role config-server -dir /tmp/fastmesh-demo/config-server
+```
+
+Wait for `config-server-ready`, then run each app in its own terminal:
+
+```sh
+/tmp/fastmesh-config -role app -name app-1 -dir /tmp/fastmesh-demo/app-1 -http 127.0.0.1:8081
+/tmp/fastmesh-config -role app -name app-2 -dir /tmp/fastmesh-demo/app-2 -http 127.0.0.1:8082
 curl -fsS http://127.0.0.1:8081/config
 ```
 
-Setup requires a new directory and creates demo credentials valid for 24 hours.
+Setup requires a new directory and creates four independent deployment directories with demo credentials valid for 24 hours.
 See the [configuration example](examples/app-config/README.md) for updates and deployment.
 After the release tag is published, applications can install it with
 `go get github.com/fastabc/fastmesh@v0.1.0`.
@@ -85,6 +95,7 @@ after the Nodes using it have stopped. Observer callbacks must return promptly.
 
 | Goal | Guide |
 | --- | --- |
+| Example overview | [Independent deployment directories](examples/README.md) |
 | HTTP service calls | [Orders and payments](examples/orders-payments/README.md) |
 | gRPC methods | [gRPC](examples/grpc/README.md) |
 | Application configuration | [App configuration](examples/app-config/README.md) |

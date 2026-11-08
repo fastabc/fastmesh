@@ -30,14 +30,14 @@ type options struct {
 
 func main() {
 	var o options
-	flag.StringVar(&o.role, "role", "app", "setup, controller, or app")
+	flag.StringVar(&o.role, "role", "app", "setup, controller, config-server, or app")
 	flag.StringVar(&o.name, "name", "app-1", "app-1 or app-2 (app identity)")
-	flag.StringVar(&o.dir, "dir", "config-demo", "credentials and local state directory")
+	flag.StringVar(&o.dir, "dir", "config-demo", "setup output root; otherwise this process deployment directory")
 	flag.StringVar(&o.controller, "controller", "127.0.0.1:19190", "controller dial address; also listen address in controller mode")
-	flag.StringVar(&o.listen, "config-listen", "127.0.0.1:19191", "controller's mesh config service bind address")
+	flag.StringVar(&o.listen, "config-listen", "127.0.0.1:19191", "config-server mesh bind address")
 	flag.StringVar(&o.advertise, "advertise", "127.0.0.1:19191", "config service IP:port reachable by all apps")
 	flag.StringVar(&o.http, "http", "127.0.0.1:8081", "app's local HTTP demo/status address")
-	flag.StringVar(&o.config, "config", "", "controller source file (default: dir/app.json)")
+	flag.StringVar(&o.config, "config", "", "config-server source file (default: dir/app.json)")
 	flag.DurationVar(&o.poll, "poll", 2*time.Second, "app config polling interval")
 	flag.Parse()
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -54,13 +54,15 @@ func run(ctx context.Context, o options) error {
 		return setup(o.dir)
 	case "controller":
 		return runController(ctx, o)
+	case "config-server":
+		return runConfigServer(ctx, o)
 	case "app":
 		if o.name != "app-1" && o.name != "app-2" || o.poll <= 0 {
 			return errors.New("app requires name app-1/app-2 and a positive poll interval")
 		}
 		return runApp(ctx, o)
 	default:
-		return errors.New("role must be setup, controller or app")
+		return errors.New("role must be setup, controller, config-server or app")
 	}
 }
 
@@ -68,16 +70,13 @@ func newNode(o options, name, token string) (*node.Node, error) {
 	return node.New(node.Config{
 		Identity: fileIdentity{dir: o.dir, role: name}, Controllers: []string{o.controller},
 		AllowedControllerIDs: []string{id("controller").String()}, TrustDomain: domain,
-		Tenant: "default", JoinToken: token, StateDir: filepath.Join(o.dir, name+"-state"),
+		Tenant: "default", JoinToken: token, StateDir: filepath.Join(o.dir, "state"),
 		ListenAddress: o.listen, AdvertiseAddress: o.advertise,
 		ConnectTimeout: 2 * time.Second, DrainTimeout: time.Second,
 	})
 }
 
 func runController(ctx context.Context, o options) error {
-	if o.config == "" {
-		o.config = filepath.Join(o.dir, "app.json")
-	}
 	backing, err := file.Open(filepath.Join(o.dir, "controller-store.json"))
 	if err != nil {
 		return err
@@ -108,7 +107,7 @@ func runController(ctx context.Context, o options) error {
 	if err := c.PutService(ctx, model.Service{Tenant: "default", Name: "app-config", RequiresL7: true, Ports: []model.ServicePort{{Name: "http", Protocol: "http"}}}); err != nil {
 		return err
 	}
-	if err := c.PutBindGrant(ctx, "config-provider", model.BindGrant{Tenant: "default", Service: "app-config", Workload: model.Principal{ID: id("controller")}}); err != nil {
+	if err := c.PutBindGrant(ctx, "config-provider", model.BindGrant{Tenant: "default", Service: "app-config", Workload: model.Principal{ID: id("config-server")}}); err != nil {
 		return err
 	}
 	for _, name := range []string{"app-1", "app-2"} {
@@ -116,7 +115,7 @@ func runController(ctx context.Context, o options) error {
 			return err
 		}
 	}
-	// This short-lived demo token is shared by the three enrolled nodes.
+	// Deliver this short-lived demo token to each node over a trusted channel.
 	token, err := c.CreateJoinToken(ctx, enrollment.CreateRequest{Tenant: "default", TTL: time.Hour})
 	if err != nil {
 		return err
@@ -124,7 +123,24 @@ func runController(ctx context.Context, o options) error {
 	if err := os.WriteFile(filepath.Join(o.dir, "join-token"), []byte(token.Raw), 0600); err != nil {
 		return err
 	}
-	provider, err := newNode(o, "controller", token.Raw)
+	log.Printf("controller-ready address=%s token=%s", o.controller, filepath.Join(o.dir, "join-token"))
+	select {
+	case <-done:
+		return serveErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func runConfigServer(ctx context.Context, o options) error {
+	if o.config == "" {
+		o.config = filepath.Join(o.dir, "app.json")
+	}
+	token, err := os.ReadFile(filepath.Join(o.dir, "join-token"))
+	if err != nil {
+		return err
+	}
+	provider, err := newNode(o, "config-server", strings.TrimSpace(string(token)))
 	if err != nil {
 		return err
 	}
@@ -137,13 +153,9 @@ func runController(ctx context.Context, o options) error {
 		return err
 	}
 	defer bound.Close()
-	log.Printf("controller-ready address=%s config-service=%s source=%s", o.controller, o.advertise, o.config)
-	select {
-	case <-done:
-		return serveErr
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	log.Printf("config-server-ready address=%s source=%s", o.advertise, o.config)
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 func runApp(ctx context.Context, o options) error {

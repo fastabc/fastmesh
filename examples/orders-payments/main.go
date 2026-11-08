@@ -36,19 +36,21 @@ const domain = "example.test"
 
 func main() {
 	role := flag.String("role", "orders", "setup, controller, payments or orders")
-	dir := flag.String("state", "demo-state", "demo credential and state directory")
+	dir := flag.String("state", "demo-state", "setup output root; otherwise this process deployment directory")
 	requestPath := flag.String("path", "/pay", "orders request path")
 	address := flag.String("controller", "127.0.0.1:19190", "controller listen/dial address")
+	listen := flag.String("listen", "127.0.0.1:0", "payments mesh listen address")
+	advertise := flag.String("advertise", "", "payments reachable IP:port (empty uses listener)")
 	flag.Parse()
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := run(ctx, *role, *dir, *address, *requestPath); err != nil {
+	if err := run(ctx, *role, *dir, *address, *requestPath, *listen, *advertise); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, role, dir, address, requestPath string) error {
+func run(ctx context.Context, role, dir, address, requestPath, listen, advertise string) error {
 	if role == "setup" {
 		return setup(dir)
 	}
@@ -104,7 +106,7 @@ func run(ctx context.Context, role, dir, address, requestPath string) error {
 	if err != nil {
 		return err
 	}
-	n, err := node.New(node.Config{Identity: source, Controllers: []string{address}, AllowedControllerIDs: []string{id("controller").String()}, TrustDomain: domain, Tenant: "default", JoinToken: strings.TrimSpace(string(token)), StateDir: filepath.Join(dir, role), ConnectTimeout: time.Second, DrainTimeout: time.Second})
+	n, err := node.New(node.Config{Identity: source, Controllers: []string{address}, AllowedControllerIDs: []string{id("controller").String()}, TrustDomain: domain, Tenant: "default", JoinToken: strings.TrimSpace(string(token)), StateDir: filepath.Join(dir, "state"), ListenAddress: listen, AdvertiseAddress: advertise, ConnectTimeout: time.Second, DrainTimeout: time.Second})
 	if err != nil {
 		return err
 	}
@@ -206,11 +208,8 @@ func (s fileIdentity) GetSVID(context.Context) (spiffe.SVID, error) {
 
 // setup creates short-lived demo credentials; it refuses to overwrite a PKI.
 func setup(dir string) error {
-	if _, err := os.Stat(filepath.Join(dir, "ca.pem")); err == nil {
-		return errors.New("demo PKI already exists")
-	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
+	if err := os.Mkdir(dir, 0700); err != nil {
+		return fmt.Errorf("create fresh demo directory: %w", err)
 	}
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -226,13 +225,16 @@ func setup(dir string) error {
 	if err != nil {
 		return err
 	}
-	write := func(name, kind string, der []byte) error {
-		return os.WriteFile(filepath.Join(dir, name), pem.EncodeToMemory(&pem.Block{Type: kind, Bytes: der}), 0600)
-	}
-	if err := write("ca.pem", "CERTIFICATE", der); err != nil {
-		return err
+	write := func(role, name, kind string, der []byte) error {
+		return os.WriteFile(filepath.Join(dir, role, name), pem.EncodeToMemory(&pem.Block{Type: kind, Bytes: der}), 0600)
 	}
 	for i, role := range []string{"controller", "orders", "payments"} {
+		if err := os.Mkdir(filepath.Join(dir, role), 0700); err != nil {
+			return err
+		}
+		if err := write(role, "ca.pem", "CERTIFICATE", ca.Raw); err != nil {
+			return err
+		}
 		pub, leafKey, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			return err
@@ -243,14 +245,14 @@ func setup(dir string) error {
 		if err != nil {
 			return err
 		}
-		if err := write(role+".pem", "CERTIFICATE", der); err != nil {
+		if err := write(role, role+".pem", "CERTIFICATE", der); err != nil {
 			return err
 		}
 		keyDER, err := x509.MarshalPKCS8PrivateKey(leafKey)
 		if err != nil {
 			return err
 		}
-		if err := write(role+"-key.pem", "PRIVATE KEY", keyDER); err != nil {
+		if err := write(role, role+"-key.pem", "PRIVATE KEY", keyDER); err != nil {
 			return err
 		}
 	}
