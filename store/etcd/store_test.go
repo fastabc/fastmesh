@@ -153,3 +153,34 @@ func TestDefaultPrefixBelongsToMesh(t *testing.T) {
 		t.Fatalf("explicit prefix = %q", got)
 	}
 }
+
+func TestLeaseExpiryConformance(t *testing.T) {
+	storetest.RunLeaseExpiryConformance(t, func(t *testing.T) store.LeaseStore { return openEtcd(t) })
+}
+
+func TestExpiredServerLeaseCannotRenew(t *testing.T) {
+	s := openEtcd(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	lease, ok, err := s.AcquireLease(ctx, store.LeaseRequest{Name: "server-expiry", Holder: "old", TTL: time.Second})
+	if err != nil || !ok {
+		t.Fatalf("acquire: %v %v", ok, err)
+	}
+	for {
+		_, err = s.GetLease(ctx, lease.Name)
+		if errors.Is(err, store.ErrNotFound) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("server lease did not expire")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	if _, ok, err := s.RenewLease(ctx, store.LeaseRequest{Name: lease.Name, Holder: lease.Holder, Token: lease.Token, TTL: time.Second}); ok || !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("renew deleted server lease: %v %v", ok, err)
+	}
+}

@@ -18,12 +18,18 @@ func PackPlan(p model.Plan) (*discoveryv1.Resource, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(body) > model.MaxPlanBodyBytes {
+		return nil, model.ErrPlanTooLarge
+	}
 	return &discoveryv1.Resource{Name: p.NodeID, Version: p.Hash, Resource: &anypb.Any{TypeUrl: model.PlanTypeURL, Value: body}}, nil
 }
 
 // DecodePlanBody must only receive bytes already authenticated by the caller.
 // The topology hash is opaque; unknown JSON fields do not invalidate it.
 func DecodePlanBody(body []byte) (model.Plan, error) {
+	if len(body) > model.MaxPlanBodyBytes {
+		return model.Plan{}, model.ErrPlanTooLarge
+	}
 	var wire struct {
 		Header   model.PlanHeader `json:"header"`
 		Topology struct {

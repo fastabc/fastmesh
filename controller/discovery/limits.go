@@ -116,18 +116,15 @@ func newCoalescer(window time.Duration) *coalescer {
 }
 
 func (c *coalescer) schedule() {
-	if c.timer == nil {
-		c.timer = time.NewTimer(c.window)
-		c.ch = c.timer.C
+	// Bound batching from the first change, even during continuous churn.
+	if c.ch != nil {
 		return
 	}
-	if !c.timer.Stop() {
-		select {
-		case <-c.timer.C:
-		default:
-		}
+	if c.timer == nil {
+		c.timer = time.NewTimer(c.window)
+	} else {
+		c.timer.Reset(c.window)
 	}
-	c.timer.Reset(c.window)
 	c.ch = c.timer.C
 }
 

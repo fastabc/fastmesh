@@ -70,7 +70,7 @@ func (c *Controller) build(ctx context.Context, r discovery.BuildRequest) (disco
 		recorder = c.compileObserver.RecordPlanCompile
 	}
 	resource, p, err := c.plans.Resource(ctx, captured, r.Session.Principal, r.TypeURL, time.Now(), c.cfg.PlanValidity, recorder)
-	if errors.Is(err, plancache.ErrCapacity) {
+	if errors.Is(err, plancache.ErrCapacity) || errors.Is(err, model.ErrPlanTooLarge) {
 		return discovery.Artifact{}, status.Error(codes.ResourceExhausted, err.Error())
 	}
 	if err != nil {

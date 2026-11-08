@@ -3,7 +3,6 @@ package dataplane
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/fastabc/fastmesh/identity/spiffe"
@@ -21,7 +20,7 @@ type Runtime struct {
 	observedHash     string
 	identity         spiffe.Source
 	timeout          time.Duration
-	plan             atomic.Pointer[model.Plan]
+	plan             planHolder
 	planSource       func() *model.Plan
 	verifyStoredPlan func(context.Context, *snapshot.Snapshot) (*model.Plan, error)
 	mu               sync.Mutex

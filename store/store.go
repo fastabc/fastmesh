@@ -131,6 +131,7 @@ func LeaderHint(err error) (string, bool) {
 }
 
 // LeaseStore provides the lease primitive used by leader election.
+// RenewLease must reject an expired lease; reacquisition issues a new token.
 type LeaseStore interface {
 	GetLease(ctx context.Context, name string) (Lease, error)
 	AcquireLease(ctx context.Context, req LeaseRequest) (Lease, bool, error)

@@ -25,7 +25,14 @@ func Inbound(p *model.Plan, ref ServiceRef) *model.InboundService {
 }
 
 func AllowedInbound(p *model.Plan, ref ServiceRef, peer spiffeid.ID, httpMode bool, request *http.Request) bool {
-	in := Inbound(p, ref)
+	return allowedInbound(Inbound(p, ref), peer, httpMode, request)
+}
+
+func (r *Runtime) AllowedInbound(p *model.Plan, ref ServiceRef, peer spiffeid.ID, httpMode bool, request *http.Request) bool {
+	return allowedInbound(r.Inbound(p, ref), peer, httpMode, request)
+}
+
+func allowedInbound(in *model.InboundService, peer spiffeid.ID, httpMode bool, request *http.Request) bool {
 	if in == nil || (in.RequiresL7 && !httpMode) {
 		return false
 	}
@@ -45,17 +52,12 @@ func AllowedInbound(p *model.Plan, ref ServiceRef, peer spiffeid.ID, httpMode bo
 
 func (c *Conn) allowed(p *model.Plan) bool {
 	if !c.outbound {
-		return AllowedInbound(p, c.ref, c.peer, c.httpMode, nil)
+		return c.runtime.AllowedInbound(p, c.ref, c.peer, c.httpMode, nil)
 	}
-	if p != nil {
-		for _, out := range p.Outbound {
-			if out.Service == c.ref.Service && out.Port.Name == c.ref.Port {
-				for _, owner := range out.Owners {
-					if owner == c.peer {
-						return true
-					}
-				}
-				return false
+	if out := c.runtime.outbound(p, c.ref); out != nil {
+		for _, owner := range out.Owners {
+			if owner == c.peer {
+				return true
 			}
 		}
 	}

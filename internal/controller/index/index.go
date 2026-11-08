@@ -10,6 +10,7 @@ import (
 
 	"github.com/fastabc/fastmesh/internal/controller/catalog"
 	"github.com/fastabc/fastmesh/internal/controller/expiry"
+	"github.com/fastabc/fastmesh/internal/storeutil"
 	"github.com/fastabc/fastmesh/model"
 	"github.com/fastabc/fastmesh/store"
 )
@@ -56,7 +57,7 @@ func (s *Snapshot) View() store.View {
 	for _, obj := range s.objects {
 		r := store.Range{Tenant: s.Tenant, Kind: obj.Key.Kind}
 		if _, ok := v.Objects[r]; ok {
-			v.Objects[r] = append(v.Objects[r], cloneObject(obj))
+			v.Objects[r] = append(v.Objects[r], storeutil.CloneObject(obj))
 		}
 	}
 	for r := range v.Objects {
@@ -126,17 +127,7 @@ func (i *Index) notify(tenant string) {
 	}
 }
 func (i *Index) signal() { close(i.changed); i.changed = make(chan struct{}) }
-func cloneObject(obj store.Object) store.Object {
-	obj.Data = append([]byte(nil), obj.Data...)
-	if obj.Labels != nil {
-		labels := map[string]string{}
-		for k, v := range obj.Labels {
-			labels[k] = v
-		}
-		obj.Labels = labels
-	}
-	return obj
-}
+
 func (i *Index) reset(v store.View) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -146,7 +137,7 @@ func (i *Index) reset(v store.View) {
 	for r, objects := range v.Objects {
 		if r.Kind == model.NodeKind {
 			for _, obj := range objects {
-				i.nodes[obj.Key] = cloneObject(obj)
+				i.nodes[obj.Key] = storeutil.CloneObject(obj)
 			}
 			all = append(all, objects...)
 			continue
@@ -157,7 +148,7 @@ func (i *Index) reset(v store.View) {
 				s = &Snapshot{Tenant: obj.Key.Tenant, Revision: v.Revision, objects: map[store.ObjectKey]store.Object{}, grants: map[store.ObjectKey]model.BindGrant{}}
 				next[obj.Key.Tenant] = s
 			}
-			obj = cloneObject(obj)
+			obj = storeutil.CloneObject(obj)
 			s.objects[obj.Key] = obj
 			if obj.Key.Kind == model.BindGrantKind {
 				if grant, err := catalog.DecodeBindGrant(obj); err == nil {
@@ -199,7 +190,7 @@ func (i *Index) apply(batch store.RevisionBatch) {
 				if i.nodes == nil {
 					i.nodes = map[store.ObjectKey]store.Object{}
 				}
-				i.nodes[e.Object.Key] = cloneObject(object)
+				i.nodes[e.Object.Key] = storeutil.CloneObject(object)
 			}
 			tenant, changed := nodeNotify(previous, object)
 			if changed || e.Type == store.EventDelete {
@@ -249,7 +240,7 @@ func (i *Index) apply(batch store.RevisionBatch) {
 		if e.Type == store.EventDelete {
 			delete(s.objects, e.Object.Key)
 		} else {
-			s.objects[e.Object.Key] = cloneObject(e.Object)
+			s.objects[e.Object.Key] = storeutil.CloneObject(e.Object)
 		}
 		if e.Type == store.EventDelete || catalog.TopologyChanged(old, e.Object) {
 			notify[tenant] = true

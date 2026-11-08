@@ -1,8 +1,6 @@
 package state
 
 import (
-	"compress/gzip"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -142,13 +140,8 @@ func (s *Store) loadApplyJournalEnvelope() (applyJournalEnvelope, error) {
 		return applyJournalEnvelope{}, err
 	}
 	defer f.Close()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return applyJournalEnvelope{}, err
-	}
-	defer gz.Close()
 	var journal applyJournalEnvelope
-	if err := json.NewDecoder(gz).Decode(&journal); err != nil {
+	if err := readGzipJSON(f, &journal); err != nil {
 		return applyJournalEnvelope{}, err
 	}
 	if journal.Version != applyJournalVersion {

@@ -73,3 +73,7 @@ func TestLeaseAcquireRenewRelease(t *testing.T) {
 func TestExtensionConformance(t *testing.T) {
 	storetest.RunExtensionConformance(t, func(t *testing.T) storetest.ExtensionBackend { return New() })
 }
+
+func TestLeaseExpiryConformance(t *testing.T) {
+	storetest.RunLeaseExpiryConformance(t, func(t *testing.T) store.LeaseStore { return New() })
+}

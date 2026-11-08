@@ -94,7 +94,7 @@ func (b *Listener) register(ctx context.Context, serving bool) (*catalogv1.Endpo
 func (b *Listener) registerConditions(ctx context.Context, serving, terminating bool) (*catalogv1.EndpointLease, error) {
 	if serving {
 		p := b.node.runtime.CurrentPlan()
-		if !dataplane.Fresh(p) || dataplane.Inbound(p, b.listener.Service()) == nil {
+		if !dataplane.Fresh(p) || b.node.runtime.Inbound(p, b.listener.Service()) == nil {
 			return nil, ErrDenied
 		}
 	}

@@ -9,6 +9,7 @@
 .idea/
 .vscode/
 .omm
+.openidea
 
 # ---- AI / graph tools -------------------------------------------
 .claude/
@@ -74,5 +75,5 @@ logs/CHANGELOG.md
 # Docs
 /docs/archive
 /docs/superpowers
-/docs/plans
+/docs/plans/*
 /docs/reviews

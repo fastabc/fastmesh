@@ -42,15 +42,6 @@ func (s *Store) applyObjects(ctx context.Context, changes []store.ObjectChange, 
 			return store.ErrConflict
 		}
 	}
-	previous := s.objects
-	s.objects = make(map[store.ObjectKey]store.Object, len(previous)+len(changes))
-	for key, obj := range previous {
-		s.objects[key] = obj
-	}
-	// Remove compared objects before checking the replacement set's quotas.
-	for _, change := range changes {
-		delete(s.objects, normalizeObjectKey(change.Object.Key))
-	}
 	now := time.Now().UTC()
 	batch := store.RevisionBatch{Revision: s.version + 1}
 	for _, change := range changes {
@@ -59,10 +50,17 @@ func (s *Store) applyObjects(ctx context.Context, changes []store.ObjectChange, 
 		obj.ResourceVersion, obj.UpdatedAt = batch.Revision, now
 		eventType := store.EventDelete
 		if !change.Delete {
-			s.objects[obj.Key] = obj
 			eventType = store.EventPut
 		}
 		batch.Events = append(batch.Events, store.Event{Type: eventType, Object: obj})
+	}
+	// Prepare every copy before publishing any mutation under the same lock.
+	for _, event := range batch.Events {
+		if event.Type == store.EventDelete {
+			delete(s.objects, event.Object.Key)
+		} else {
+			s.objects[event.Object.Key] = event.Object
+		}
 	}
 	s.version = batch.Revision
 	for _, event := range batch.Events {

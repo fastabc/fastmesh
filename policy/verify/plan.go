@@ -19,6 +19,9 @@ func PlanBodySigningPayload(typeURL string, body []byte) ([]byte, error) {
 	if typeURL != model.PlanTypeURL {
 		return nil, fmt.Errorf("%w: unsupported raw plan type", ErrVerificationFailed)
 	}
+	if len(body) > model.MaxPlanBodyBytes {
+		return nil, model.ErrPlanTooLarge
+	}
 	prefix := "DSSEv1 " + strconv.Itoa(len(typeURL)) + " " + typeURL + " " + strconv.Itoa(len(body)) + " "
 	return append([]byte(prefix), body...), nil
 }

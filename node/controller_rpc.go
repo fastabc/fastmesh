@@ -5,6 +5,7 @@ import (
 
 	catalogv1 "github.com/fastabc/fastmesh/api/catalog/v1"
 	"github.com/fastabc/fastmesh/identity/spiffe"
+	"github.com/fastabc/fastmesh/model"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -16,7 +17,7 @@ func (n *Node) dialOptions(ctx context.Context) ([]grpc.DialOption, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(cfg))}, nil
+	return []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(cfg)), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(model.MaxPlanEnvelopeBytes))}, nil
 }
 
 func (n *Node) lease(ctx context.Context, call func(context.Context, catalogv1.CatalogClient) (*catalogv1.EndpointLease, error)) (*catalogv1.EndpointLease, error) {

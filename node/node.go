@@ -22,9 +22,12 @@ type Config struct {
 	// ListenAddress is the local bind IP and port; port zero requests an
 	// ephemeral port. Wildcard binds require a concrete AdvertiseAddress.
 	// AdvertiseAddress port zero reuses the actual listener port.
-	ListenAddress                string
-	AdvertiseAddress             string
-	ConnectTimeout, DrainTimeout time.Duration
+	ListenAddress    string
+	AdvertiseAddress string
+	ConnectTimeout   time.Duration
+	// DrainTimeout bounds listener/connection draining. Close also waits for
+	// control and apply work; a blocking hook can outlive this timeout.
+	DrainTimeout time.Duration
 	// DialTimeout bounds the whole Dial; ConnectTimeout bounds one attempt.
 	DialTimeout time.Duration
 }

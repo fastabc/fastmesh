@@ -26,7 +26,7 @@ func (r *Runtime) HTTPHandler(ref ServiceRef, next http.Handler) http.Handler {
 		id, ok := PeerFromContext(req.Context())
 		p := r.CurrentPlan()
 		observer := r.Observer()
-		if in := Inbound(p, ref); in != nil {
+		if in := r.Inbound(p, ref); in != nil {
 			l7 := in.RequiresL7
 			for _, rule := range in.Allow {
 				l7 = l7 || rule.L7 != nil
@@ -39,7 +39,7 @@ func (r *Runtime) HTTPHandler(ref ServiceRef, next http.Handler) http.Handler {
 				return
 			}
 		}
-		if !ok || !Fresh(p) || !AllowedInbound(p, ref, id, true, req) {
+		if !ok || !Fresh(p) || !r.AllowedInbound(p, ref, id, true, req) {
 			if observer != nil {
 				observer.ConnDenied(model.DirectionInbound, ref, id, model.ErrDenied.Error())
 			}
@@ -51,7 +51,7 @@ func (r *Runtime) HTTPHandler(ref ServiceRef, next http.Handler) http.Handler {
 }
 
 // PeerFromContext returns the caller identity verified by the mesh handshake.
-// HTTPHandler sets this value on the request context before invoking the handler.
+// PeerContext attaches it to HTTP connections; gRPC supplies verified AuthInfo.
 func PeerFromContext(ctx context.Context) (spiffeid.ID, bool) {
 	id, ok := ctx.Value(peerContextKey{}).(spiffeid.ID)
 	if ok && !id.IsZero() {

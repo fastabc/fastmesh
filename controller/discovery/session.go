@@ -6,9 +6,11 @@ import (
 	"time"
 
 	discoveryv1 "github.com/fastabc/fastmesh/api/discovery/v1"
+	"github.com/fastabc/fastmesh/model"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type streamCodec[Req, Resp any] struct {
@@ -127,7 +129,11 @@ func runSession[Req, Resp any](s *Server, stream grpc.BidiStreamingServer[Req, R
 			return err
 		}
 		nonce := nonce()
-		if err := sendResponse(ctx, func() error { return stream.Send(codec.response(built, nonce, typeURL, session.Node)) }, s.cfg.AckTimeout); err != nil {
+		response := codec.response(built, nonce, typeURL, session.Node)
+		if typeURL == model.PlanTypeURL && proto.Size(any(response).(proto.Message)) > model.MaxPlanEnvelopeBytes {
+			return status.Error(codes.ResourceExhausted, model.ErrPlanTooLarge.Error())
+		}
+		if err := sendResponse(ctx, func() error { return stream.Send(response) }, s.cfg.AckTimeout); err != nil {
 			return err
 		}
 		state.lastSent, state.pendingNonce, state.pendingRevision = version, nonce, built.Revision

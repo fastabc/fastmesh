@@ -13,15 +13,8 @@ import (
 // grows. Every mutation re-encodes the whole state file and fsyncs it, so the
 // question this answers is which of the two dominates.
 //
-// Measured on an M-series laptop (SSD): 10 objects 6.8ms, 100 objects 7.8ms,
-// 1000 objects 8.4ms. The fsync floor is ~6.8ms and the marginal cost of an
-// object is ~1.5us, so object count is not what makes writes slow at any
-// realistic single-node scale - durability is. Read that before optimising the
-// serialisation: the win is not there.
-//
-// What does scale badly is bulk loading, since each of N objects pays its own
-// fsync. A provider seeding thousands of objects at startup is the case to
-// watch, and the fix for it would be a batch write, not a faster encoder.
+// Compare encoding and fsync costs on the deployment filesystem. Results are
+// environment-dependent; bulk-load performance should be measured separately.
 func BenchmarkPutObjectAtScale(b *testing.B) {
 	for _, n := range []int{10, 100, 1000} {
 		b.Run(fmt.Sprintf("objects=%d", n), func(b *testing.B) {

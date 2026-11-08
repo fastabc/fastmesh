@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 const defaultCoalesceWindow = 50 * time.Millisecond
@@ -172,5 +173,9 @@ func (s *Server) FetchSnapshot(ctx context.Context, req *discoveryv1.FetchSnapsh
 	if err := built.sign(ctx); err != nil {
 		return nil, err
 	}
-	return &discoveryv1.FetchSnapshotResponse{Tenant: session.Principal.Tenant, Revision: built.Revision, Snapshot: built.FetchPayload, SnapshotSignature: built.Signature, Node: session.Node, TypeUrl: typeURL}, nil
+	response := &discoveryv1.FetchSnapshotResponse{Tenant: session.Principal.Tenant, Revision: built.Revision, Snapshot: built.FetchPayload, SnapshotSignature: built.Signature, Node: session.Node, TypeUrl: typeURL}
+	if typeURL == model.PlanTypeURL && proto.Size(response) > model.MaxPlanEnvelopeBytes {
+		return nil, status.Error(codes.ResourceExhausted, model.ErrPlanTooLarge.Error())
+	}
+	return response, nil
 }

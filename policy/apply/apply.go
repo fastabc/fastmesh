@@ -75,7 +75,7 @@ func NewPipeline(holder *Holder, st *state.Store, validators ...Validator) *Pipe
 }
 
 // AddCommitHook registers a hook that stages side effects for each successful
-// snapshot commit.
+// snapshot commit. Configure hooks before Apply, Update or Restore can run.
 func (p *Pipeline) AddCommitHook(h CommitHook) {
 	if h != nil {
 		p.hooks = append(p.hooks, h)
@@ -84,7 +84,7 @@ func (p *Pipeline) AddCommitHook(h CommitHook) {
 
 // SetMaterialResolver binds apply-time capture and restore-time local-only
 // resolution to this pipeline. The same resolver must be passed to hooks that
-// resolve snapshot SecretRefs.
+// resolve snapshot SecretRefs. Configure it before Apply, Update or Restore.
 func (p *Pipeline) SetMaterialResolver(resolver MaterialResolver) {
 	p.materials = resolver
 }

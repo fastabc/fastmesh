@@ -9,6 +9,7 @@ import (
 
 	"github.com/fastabc/fastmesh/node/breaker"
 	"github.com/fastabc/fastmesh/policy/apply"
+	"github.com/fastabc/fastmesh/policy/state"
 )
 
 var (
@@ -32,6 +33,10 @@ func Reason(err error) string {
 		return "closed"
 	case errors.Is(err, apply.ErrRecoveryRequired):
 		return "recovery_required"
+	case errors.Is(err, model.ErrPlanTooLarge):
+		return "plan_too_large"
+	case errors.Is(err, state.ErrStateTooLarge):
+		return "state_too_large"
 	case errors.Is(err, ErrPlanUnavailable):
 		return "plan_unavailable"
 	case errors.Is(err, ErrServiceUnavailable):

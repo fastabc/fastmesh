@@ -20,6 +20,9 @@ func resource(p projection, typeURL string, now time.Time, validity time.Duratio
 	if marshalErr != nil {
 		return nil, plan, marshalErr
 	}
+	if len(header)+len(p.topology)+23 > model.MaxPlanBodyBytes {
+		return nil, plan, model.ErrPlanTooLarge
+	}
 	body := make([]byte, 0, len(header)+len(p.topology)+24)
 	body = append(body, `{"header":`...)
 	body = append(body, header...)

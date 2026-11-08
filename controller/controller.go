@@ -113,11 +113,12 @@ func New(cfg Config, opts ...Option) (*Controller, error) {
 	if cfg.discovery.DefaultTypeURL == "" {
 		cfg.discovery.DefaultTypeURL = model.PlanTypeURL
 	}
-	if cfg.Cache.MaxEntries < 0 || cfg.Cache.MaxPending < 0 || cfg.Cache.Parallelism < 0 {
+	if cfg.Cache.MaxEntries < 0 || cfg.Cache.MaxPending < 0 || cfg.Cache.Parallelism < 0 || cfg.Cache.MaxTopologyBytes < 0 {
 		return nil, errors.New("mesh controller: cache limits must be nonnegative")
 	}
 	c := &Controller{cfg: cfg, elector: cfg.Elector, ownsElection: cfg.Elector == nil}
 	c.plans.MaxEntries, c.plans.MaxPending, c.plans.Parallelism = cfg.Cache.MaxEntries, cfg.Cache.MaxPending, cfg.Cache.Parallelism
+	c.plans.MaxTopologyBytes = cfg.Cache.MaxTopologyBytes
 	c.compileObserver, _ = cfg.discovery.Metrics.(compileObserver)
 	c.signatureObserver, _ = cfg.discovery.Metrics.(signatureObserver)
 	if c.elector == nil {

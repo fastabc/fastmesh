@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -58,11 +60,47 @@ func (s *Store) writeAtomicClassified(name string, data []byte) (renamed bool, e
 func encodeGzipJSON(value any) ([]byte, error) {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
-	if err := json.NewEncoder(gz).Encode(value); err != nil {
+	if err := json.NewEncoder(&stateWriter{writer: gz}).Encode(value); err != nil {
 		return nil, err
 	}
 	if err := gz.Close(); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// MaxStateDecodedBytes bounds both last-good and apply journal JSON before gzip.
+// It also covers host snapshots and encrypted material, not only the mesh body.
+const MaxStateDecodedBytes = 64 << 20
+
+var ErrStateTooLarge = errors.New("state: decoded size limit exceeded")
+
+type stateWriter struct {
+	writer  io.Writer
+	written int
+}
+
+func (w *stateWriter) Write(p []byte) (int, error) {
+	if len(p) > MaxStateDecodedBytes-w.written {
+		return 0, ErrStateTooLarge
+	}
+	n, err := w.writer.Write(p)
+	w.written += n
+	return n, err
+}
+
+func readGzipJSON(reader io.Reader, value any) error {
+	gz, err := gzip.NewReader(reader)
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+	data, err := io.ReadAll(io.LimitReader(gz, MaxStateDecodedBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > MaxStateDecodedBytes {
+		return ErrStateTooLarge
+	}
+	return json.Unmarshal(data, value)
 }

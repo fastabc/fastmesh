@@ -201,7 +201,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type BootstrapClient interface {
-	// First join before steady-state SPIFFE identity is available.
+	// Enroll a transport-authenticated workload before steady-state discovery.
 	Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
 }
 
@@ -227,7 +227,7 @@ func (c *bootstrapClient) Register(ctx context.Context, in *RegisterRequest, opt
 // All implementations must embed UnimplementedBootstrapServer
 // for forward compatibility.
 type BootstrapServer interface {
-	// First join before steady-state SPIFFE identity is available.
+	// Enroll a transport-authenticated workload before steady-state discovery.
 	Register(context.Context, *RegisterRequest) (*RegisterResponse, error)
 	mustEmbedUnimplementedBootstrapServer()
 }

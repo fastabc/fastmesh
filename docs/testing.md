@@ -22,12 +22,13 @@ Use a dedicated disposable etcd, never production data:
 
 ```sh
 FASTMESH_ETCD_ENDPOINTS=http://127.0.0.1:2379 GOWORK=off \
-  go test -race -count=1 -timeout=180s ./store/etcd ./controller
+  go test -race -count=1 -timeout=180s ./store/etcd ./controller ./controller/enrollment
 ```
 
 Without the environment variable, backend integration tests skip. Release validation
 must run them with no skips. CI retains JSON results and requires the revision-watch
-and shared-watch handoff scenarios to execute.
+and shared-watch handoff, registration atomicity and server lease expiry scenarios
+to execute. Production dependency tests also reject etcd imports from node/controller.
 
 ## Fuzz and generated code
 

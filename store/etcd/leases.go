@@ -79,7 +79,7 @@ func (s *Store) RenewLease(ctx context.Context, req store.LeaseRequest) (store.L
 	if err != nil {
 		return store.Lease{}, false, err
 	}
-	if current.Holder != req.Holder || current.Token != req.Token {
+	if current.Holder != req.Holder || current.Token != req.Token || !current.ExpiresAt.After(now) {
 		return current, false, nil
 	}
 	if _, err := s.client.KeepAliveOnce(ctx, clientv3.LeaseID(req.Token)); err != nil {

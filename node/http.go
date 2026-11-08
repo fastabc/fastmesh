@@ -37,19 +37,16 @@ func (n *Node) HTTPHandler(ctx context.Context, service ServiceRef, next http.Ha
 // HTTPClient is scoped to service; both HTTP and HTTPS URLs use authenticated
 // mesh connections. The caller owns the standard transport's idle lifecycle.
 func (n *Node) HTTPClient(service ServiceRef) *http.Client {
-	dial := func(ctx context.Context, _, _ string) (net.Conn, error) { return n.Dial(ctx, service) }
-	protocols := new(http.Protocols)
-	protocols.SetHTTP1(true)
+	protocol := "http"
 	p := n.runtime.CurrentPlan()
 	if p != nil {
 		for _, out := range p.Outbound {
 			if out.Service == service.Service && out.Port.Name == service.Port && out.Port.Protocol == "grpc" {
-				protocols.SetHTTP1(false)
-				protocols.SetUnencryptedHTTP2(true)
+				protocol = "grpc"
 			}
 		}
 	}
-	return &http.Client{Transport: &http.Transport{Protocols: protocols, DialContext: dial, DialTLSContext: dial}}
+	return &http.Client{Transport: n.httpTransport(service, protocol)}
 }
 
 // HTTPClientWithProtocol constructs a pooled client independently of plan timing.
@@ -58,11 +55,7 @@ func (n *Node) HTTPClientWithProtocol(ref ServiceRef, protocol string) (*http.Cl
 	if protocol != "http" && protocol != "grpc" {
 		return nil, ErrProtocolMismatch
 	}
-	protocols := new(http.Protocols)
-	protocols.SetHTTP1(protocol == "http")
-	protocols.SetUnencryptedHTTP2(protocol == "grpc")
-	dial := func(ctx context.Context, _, _ string) (net.Conn, error) { return n.Dial(ctx, ref) }
-	transport := &http.Transport{Protocols: protocols, DialContext: dial, DialTLSContext: dial}
+	transport := n.httpTransport(ref, protocol)
 	return &http.Client{Transport: &protocolTransport{Transport: transport, node: n, ref: ref, protocol: protocol}}, nil
 }
 
@@ -87,4 +80,12 @@ func (t *protocolTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		}
 	}
 	return nil, ErrServiceUnavailable
+}
+
+func (n *Node) httpTransport(ref ServiceRef, protocol string) *http.Transport {
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(protocol == "http")
+	protocols.SetUnencryptedHTTP2(protocol == "grpc")
+	dial := func(ctx context.Context, _, _ string) (net.Conn, error) { return n.Dial(ctx, ref) }
+	return &http.Transport{Protocols: protocols, DialContext: dial, DialTLSContext: dial}
 }

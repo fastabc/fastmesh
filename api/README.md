@@ -51,3 +51,13 @@ Verify before decoding. Unknown permission requirements fail closed.
 The internal planwire codec does not verify signatures. Full and delta Discovery
 both replace a complete signed plan. Catalog endpoint messages carry serving and
 terminating state plus generation fencing. See [security](../docs/security.md).
+
+## Enrollment retries
+
+Bootstrap `RegisterRequest.request_id` (field 7) is optional: 16 random bytes as
+32 hexadecimal characters, persisted before sending. The server keys the result by
+join-token ID, transport-authenticated workload and request ID, and commits it with
+token consumption and complete Node creation. Retry while the token remains valid;
+a revoked/expired token or deleted/disabled Node rejects replay. Omit the field for
+legacy atomic registration without response-loss recovery. Preserve the field number
+and committed result records during a rollback.

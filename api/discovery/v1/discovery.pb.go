@@ -758,13 +758,15 @@ func (x *Node) GetObservedGeneration() uint64 {
 }
 
 type RegisterRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	JoinToken     string                 `protobuf:"bytes,1,opt,name=join_token,json=joinToken,proto3" json:"join_token,omitempty"`
-	NodeName      string                 `protobuf:"bytes,2,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
-	Labels        map[string]string      `protobuf:"bytes,3,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Capabilities  []string               `protobuf:"bytes,4,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
-	AgentVersion  *string                `protobuf:"bytes,5,opt,name=agent_version,json=agentVersion,proto3,oneof" json:"agent_version,omitempty"`
-	Runtime       *string                `protobuf:"bytes,6,opt,name=runtime,proto3,oneof" json:"runtime,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	JoinToken    string                 `protobuf:"bytes,1,opt,name=join_token,json=joinToken,proto3" json:"join_token,omitempty"`
+	NodeName     string                 `protobuf:"bytes,2,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
+	Labels       map[string]string      `protobuf:"bytes,3,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Capabilities []string               `protobuf:"bytes,4,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	AgentVersion *string                `protobuf:"bytes,5,opt,name=agent_version,json=agentVersion,proto3,oneof" json:"agent_version,omitempty"`
+	Runtime      *string                `protobuf:"bytes,6,opt,name=runtime,proto3,oneof" json:"runtime,omitempty"`
+	// 16 random bytes encoded as 32 hex characters; persisted across retries.
+	RequestId     string `protobuf:"bytes,7,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -837,6 +839,13 @@ func (x *RegisterRequest) GetAgentVersion() string {
 func (x *RegisterRequest) GetRuntime() string {
 	if x != nil && x.Runtime != nil {
 		return *x.Runtime
+	}
+	return ""
+}
+
+func (x *RegisterRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
 	}
 	return ""
 }
@@ -974,7 +983,7 @@ const file_fastmesh_discovery_v1_discovery_proto_rawDesc = "" +
 	"\x13observed_generation\x18\b \x01(\x04R\x12observedGeneration\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdf\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xfe\x02\n" +
 	"\x0fRegisterRequest\x12\x1d\n" +
 	"\n" +
 	"join_token\x18\x01 \x01(\tR\tjoinToken\x12\x1b\n" +
@@ -982,7 +991,9 @@ const file_fastmesh_discovery_v1_discovery_proto_rawDesc = "" +
 	"\x06labels\x18\x03 \x03(\v22.fastmesh.discovery.v1.RegisterRequest.LabelsEntryR\x06labels\x12\"\n" +
 	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\x12(\n" +
 	"\ragent_version\x18\x05 \x01(\tH\x00R\fagentVersion\x88\x01\x01\x12\x1d\n" +
-	"\aruntime\x18\x06 \x01(\tH\x01R\aruntime\x88\x01\x01\x1a9\n" +
+	"\aruntime\x18\x06 \x01(\tH\x01R\aruntime\x88\x01\x01\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\a \x01(\tR\trequestId\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x10\n" +

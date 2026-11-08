@@ -51,10 +51,10 @@ func (s *Store) RenewLease(_ context.Context, req store.LeaseRequest) (store.Lea
 	if !ok {
 		return store.Lease{}, false, store.ErrNotFound
 	}
-	if current.Holder != req.Holder || current.Token != req.Token {
+	now := requestNow(req)
+	if current.Holder != req.Holder || current.Token != req.Token || !current.ExpiresAt.After(now) {
 		return current, false, nil
 	}
-	now := requestNow(req)
 	current.ExpiresAt = now.Add(req.TTL)
 	current.UpdatedAt = now
 	current.LeaderHint = req.LeaderHint

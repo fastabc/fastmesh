@@ -75,6 +75,9 @@ func (n *Node) Run(ctx context.Context) error {
 	return err
 }
 
+// Close stops control work, drains traffic, and waits for apply before releasing
+// owned state. DrainTimeout is not a deadline for this entire operation.
+// The caller owns the identity Source and any injected composition state.
 func (n *Node) Close() error {
 	n.closeOnce.Do(func() {
 		n.mu.Lock()
@@ -134,10 +137,14 @@ func (n *Node) enroll(ctx context.Context, workload spiffeid.ID, opts []grpc.Dia
 	if n.cfg.JoinToken == "" {
 		return errors.New("mesh node: join token required for first enrollment")
 	}
+	requestID, err := n.state.EnrollmentRequestID(n.cfg.JoinToken, workload.String())
+	if err != nil {
+		return err
+	}
 	for _, conn := range n.conns {
 		callCtx, cancel := context.WithTimeout(ctx, n.cfg.ConnectTimeout)
 		var registration *discoveryv1.RegisterResponse
-		registration, err = discoveryv1.NewBootstrapClient(conn).Register(callCtx, &discoveryv1.RegisterRequest{JoinToken: n.cfg.JoinToken, NodeName: workload.String(), Capabilities: []string{model.PlanCapability}})
+		registration, err = discoveryv1.NewBootstrapClient(conn).Register(callCtx, &discoveryv1.RegisterRequest{RequestId: requestID, JoinToken: n.cfg.JoinToken, NodeName: workload.String(), Capabilities: []string{model.PlanCapability}})
 		cancel()
 		if err == nil {
 			n.mu.Lock()

@@ -113,3 +113,33 @@ func BenchmarkRevocation(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkRuntimeAuthorization(b *testing.B) {
+	peer := spiffeid.RequireFromString("spiffe://test/allowed")
+	other := spiffeid.RequireFromString("spiffe://test/other")
+	for _, services := range []int{1, 100, 1000} {
+		for _, rules := range []int{1, 100, 1000} {
+			b.Run(fmt.Sprintf("services=%d/rules=%d", services, rules), func(b *testing.B) {
+				p := &model.Plan{}
+				for i := range services {
+					in := model.InboundService{Service: fmt.Sprint("s", i), Port: model.ServicePort{Name: "api"}}
+					for range rules {
+						in.Allow = append(in.Allow, model.InboundAllow{Source: other})
+					}
+					in.Allow[rules-1].Source = peer
+					p.Inbound = append(p.Inbound, in)
+				}
+				ref := ServiceRef{Service: fmt.Sprint("s", services-1), Port: "api"}
+				r := New(nil, time.Second)
+				r.plan.Store(p)
+				b.ReportAllocs()
+				b.ResetTimer()
+				for range b.N {
+					if !r.AllowedInbound(p, ref, peer, false, nil) {
+						b.Fatal("denied")
+					}
+				}
+			})
+		}
+	}
+}

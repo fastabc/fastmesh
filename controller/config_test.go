@@ -53,12 +53,12 @@ func TestControllerDurationValidation(t *testing.T) {
 
 func TestCacheConfigReachesBuiltInCompiler(t *testing.T) {
 	st := memory.New()
-	cfg := Config{ID: "test", Objects: st, Leases: st, DevInsecure: true, Cache: CacheConfig{MaxEntries: 3, MaxPending: 2, Parallelism: 1}}
+	cfg := Config{ID: "test", Objects: st, Leases: st, DevInsecure: true, Cache: CacheConfig{MaxEntries: 3, MaxPending: 2, Parallelism: 1, MaxTopologyBytes: 4096}}
 	c, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.plans.MaxEntries != 3 || c.plans.MaxPending != 2 || c.plans.Parallelism != 1 {
+	if c.plans.MaxEntries != 3 || c.plans.MaxPending != 2 || c.plans.Parallelism != 1 || c.plans.MaxTopologyBytes != 4096 {
 		t.Fatal("cache limits not installed")
 	}
 	if c.CacheStats() != (CacheStats{}) {
@@ -74,7 +74,7 @@ func TestCacheConfigReachesBuiltInCompiler(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if stats := c.CacheStats(); stats.Entries != 3 || stats.Evictions != 2 || stats.Misses != 5 {
+	if stats := c.CacheStats(); stats.Entries != 3 || stats.Evictions != 2 || stats.Misses != 5 || stats.TopologyBytes == 0 || stats.TopologyBytes > 4096 {
 		t.Fatalf("public limits/stats not effective: %+v", stats)
 	}
 

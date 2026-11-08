@@ -1,11 +1,8 @@
 package state
 
 import (
-	"compress/gzip"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
@@ -90,18 +87,8 @@ func (s *Store) loadLastGoodFile() (*snapshot.Snapshot, []material.ResolvedMater
 		return nil, nil, err
 	}
 	defer f.Close()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer gz.Close()
-	data, err := io.ReadAll(gz)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	var envelope lastGoodEnvelope
-	if err := json.Unmarshal(data, &envelope); err != nil {
+	if err := readGzipJSON(f, &envelope); err != nil {
 		return nil, nil, err
 	}
 	return s.decodeLastGoodEnvelope(envelope)

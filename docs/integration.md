@@ -15,14 +15,19 @@ Call `node.New(cfg)` and `Start(ctx)`. Select a `node.ServiceRef{Service: ..., P
 Providers use `Listen`, `HTTPHandler` or `NewGRPCServer`; consumers use `Dial`,
 `HTTPClient` or `GRPCDialOptions`. Wait for availability with `WaitService` where needed.
 Always close the Node and client idle connections. `ConnectTimeout` bounds an
-attempt; `DialTimeout` bounds the overall dial; `DrainTimeout` bounds shutdown.
+attempt; `DialTimeout` bounds the overall dial; `DrainTimeout` bounds listener
+and connection draining. `Close` also waits for control/apply work, so blocking
+hooks or observers can outlive that timeout. Configure pipeline hooks before
+starting it, and honor callback cancellation. The caller owns the identity Source
+and injected composition state; Node closes its standalone state after apply stops.
 Wildcard listener addresses require a concrete advertised address.
 
 ## Controller
 
 Provide `controller.Config` with ID, SPIFFE identity, trust domain, ObjectStore and
 LeaseStore. Built-in backends are `store/memory`, `store/file` and `store/etcd`.
-The object backend must provide coherent View and complete revision watches;
+The object backend must provide coherent View, complete revision watches, and
+atomic fenced object transactions for registration;
 use the shared store conformance helpers for custom backends. Run `Serve(ctx, listener)`.
 Use shared etcd for multiple Controllers; assign Region/CellLabel consistently.
 

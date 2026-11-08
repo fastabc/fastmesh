@@ -50,7 +50,7 @@ jobs:
       - name: Run real etcd integration tests
         run: |
           test -n "$FASTMESH_ETCD_ENDPOINTS"
-          go test -json -race -count=1 -timeout=180s ./store/etcd ./controller > etcd-tests.json
+          go test -json -race -count=1 -timeout=180s ./store/etcd ./controller ./controller/enrollment > etcd-tests.json
       - name: Require executed integration tests
         if: always()
         run: |
@@ -63,6 +63,8 @@ jobs:
           passed = {(e["Package"], e["Test"]) for e in events if e.get("Action") == "pass" and e.get("Test")}
           required = {
               ("github.com/fastabc/fastmesh/store/etcd", "TestRevisionWatchConformance"),
+              ("github.com/fastabc/fastmesh/store/etcd", "TestExpiredServerLeaseCannotRenew"),
+              ("github.com/fastabc/fastmesh/controller/enrollment", "TestRegistrationAtomicityAndRetry/etcd"),
               ("github.com/fastabc/fastmesh/controller", "TestSharedWatchHeartbeatAndFollowerDiscoveryDuringHandoff/etcd"),
           }
           assert not skipped, f"Integration tests skipped: {skipped}"

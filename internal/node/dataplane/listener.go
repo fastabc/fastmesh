@@ -17,14 +17,14 @@ import (
 
 func (r *Runtime) Listen(ctx context.Context, ref ServiceRef, address string, httpMode bool) (*Listener, error) {
 	p := r.CurrentPlan()
-	in := Inbound(p, ref)
+	in := r.Inbound(p, ref)
 	if !Fresh(p) || in == nil || (in.RequiresL7 && !httpMode) || (httpMode && in.Port.Protocol != "http" && in.Port.Protocol != "grpc") {
 		return nil, model.ErrDenied
 	}
 	native := spiffe.X509Source{Context: context.Background(), Source: r.identity}
 	cfg := tlsconfig.MTLSServerConfig(native, native, func(peer spiffeid.ID, _ [][]*x509.Certificate) error {
 		p := r.CurrentPlan()
-		if !Fresh(p) || !AllowedInbound(p, ref, peer, httpMode, nil) {
+		if !Fresh(p) || !r.AllowedInbound(p, ref, peer, httpMode, nil) {
 			return model.ErrDenied
 		}
 		return nil

@@ -38,11 +38,12 @@ type pendingProjection struct {
 }
 
 // Cache has bounded completed and pending entries. Configure limits before use;
-// zero values select 1024 results, 128 pending builds and GOMAXPROCS workers.
-// Cached plans retain immutable snapshots until eviction. Limits count entries,
-// not bytes: deployments must also bound the size of their catalog inputs.
+// zero values select 1024 results, 64 MiB of serialized topology, 128 pending
+// builds and GOMAXPROCS workers. The byte limit excludes decoded plans, retained
+// snapshots and in-flight builds; it is not a process memory limit.
 type Cache struct {
 	MaxEntries, MaxPending, Parallelism int
+	MaxTopologyBytes                    int
 	mu                                  sync.Mutex
 	entries                             map[cacheKey]*pendingProjection
 	lru                                 list.List
@@ -51,6 +52,7 @@ type Cache struct {
 	hits, misses, evictions             uint64
 	rejected                            uint64
 	queueWait                           time.Duration
+	topologyBytes                       int
 }
 
 type Stats struct {
@@ -58,12 +60,15 @@ type Stats struct {
 	Hits, Misses, Evictions   uint64
 	Rejected                  uint64
 	QueueWait                 time.Duration
+	TopologyBytes             int
 }
 
 func (c *Cache) Stats() Stats {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return Stats{c.lru.Len(), c.pending, c.running, c.hits, c.misses, c.evictions, c.rejected, c.queueWait}
+	return Stats{Entries: c.lru.Len(), Pending: c.pending, Running: c.running,
+		Hits: c.hits, Misses: c.misses, Evictions: c.evictions, Rejected: c.rejected,
+		QueueWait: c.queueWait, TopologyBytes: c.topologyBytes}
 }
 
 // Resource changes only the signed deadline on an unchanged revision. The
@@ -84,6 +89,9 @@ func (c *Cache) Resource(ctx context.Context, s *index.Snapshot, recipient model
 		}
 		if c.MaxPending <= 0 {
 			c.MaxPending = 128
+		}
+		if c.MaxTopologyBytes <= 0 {
+			c.MaxTopologyBytes = 64 << 20
 		}
 		if c.Parallelism <= 0 {
 			c.Parallelism = runtime.GOMAXPROCS(0)
@@ -168,6 +176,9 @@ func (c *Cache) build(ctx context.Context, key cacheKey, pending *pendingProject
 				}
 				if err == nil {
 					p.topology, err = json.Marshal(p.plan.Wire().Topology)
+					if err == nil && len(p.topology) > model.MaxPlanBodyBytes {
+						err = model.ErrPlanTooLarge
+					}
 				}
 			}
 			<-c.slots
@@ -195,23 +206,19 @@ func (c *Cache) build(ctx context.Context, key cacheKey, pending *pendingProject
 					if other.snapshot.Revision > key.snapshot.Revision {
 						retain = false
 					} else {
-						delete(c.entries, other)
-						c.lru.Remove(e)
-						c.evictions++
+						c.evict(e)
 					}
 				}
 				e = next
 			}
 			if retain {
 				pending.retained = c.lru.PushFront(key)
+				c.topologyBytes += len(p.topology)
 			} else {
 				delete(c.entries, key)
 			}
-			for c.lru.Len() > c.MaxEntries {
-				oldest := c.lru.Back()
-				delete(c.entries, oldest.Value.(cacheKey))
-				c.lru.Remove(oldest)
-				c.evictions++
+			for c.lru.Len() > c.MaxEntries || c.topologyBytes > c.MaxTopologyBytes {
+				c.evict(c.lru.Back())
 			}
 		}
 	}
@@ -221,4 +228,15 @@ func (c *Cache) build(ctx context.Context, key cacheKey, pending *pendingProject
 		record(elapsed, err)
 	}
 	close(pending.observed)
+}
+
+// evict runs under mu; existing waiters keep their completed projection.
+func (c *Cache) evict(e *list.Element) {
+	key := e.Value.(cacheKey)
+	p := c.entries[key]
+	c.topologyBytes -= len(p.value.topology)
+	p.retained = nil
+	delete(c.entries, key)
+	c.lru.Remove(e)
+	c.evictions++
 }

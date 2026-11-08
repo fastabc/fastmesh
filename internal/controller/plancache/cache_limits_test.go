@@ -122,3 +122,36 @@ func TestCacheAdmissionCancellationAndChurn(t *testing.T) {
 		t.Fatal("canceled call changed cache")
 	}
 }
+
+func TestCacheTopologyByteBudget(t *testing.T) {
+	f, snapshots := newCacheFixture(t, 3, 10)
+	call := func(c *Cache, tenant int, id string) {
+		t.Helper()
+		s := snapshots[tenant]
+		if _, _, err := c.Resource(context.Background(), s, model.Session{Tenant: s.Tenant, NodeID: id, Workload: f.owner}, model.PlanTypeURL, f.now, time.Minute, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	probe := &Cache{}
+	call(probe, 0, "probe")
+	budget := probe.Stats().TopologyBytes
+	if budget == 0 {
+		t.Fatal("missing serialized topology accounting")
+	}
+	c := &Cache{MaxEntries: 100, MaxTopologyBytes: budget}
+	for i := range 12 {
+		call(c, i%3, fmt.Sprint(i))
+		if s := c.Stats(); s.TopologyBytes > budget || s.Entries > 1 {
+			t.Fatalf("byte budget exceeded: %+v", s)
+		}
+	}
+	if c.Stats().Evictions == 0 {
+		t.Fatal("byte limit did not evict")
+	}
+	// A valid response larger than retention capacity still serves its caller.
+	tiny := &Cache{MaxTopologyBytes: 1}
+	call(tiny, 0, "uncached")
+	if s := tiny.Stats(); s.TopologyBytes != 0 || s.Entries != 0 || s.Pending != 0 {
+		t.Fatalf("oversized entry retained: %+v", s)
+	}
+}

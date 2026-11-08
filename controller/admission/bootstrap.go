@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
+	"errors"
 	"time"
 
 	discoveryv1 "github.com/fastabc/fastmesh/api/discovery/v1"
@@ -17,6 +17,7 @@ import (
 
 type Bootstrap struct {
 	discoveryv1.UnimplementedBootstrapServer
+	// Deprecated: Register uses the atomic store owned by Tokens.
 	Objects             store.ObjectStore
 	Tokens              *enrollment.Manager
 	DevInsecure         bool
@@ -40,10 +41,7 @@ func (s *Bootstrap) Register(ctx context.Context, req *discoveryv1.RegisterReque
 	if s.Tokens == nil {
 		return nil, status.Error(codes.Unavailable, "bootstrap not configured")
 	}
-	tok, err := s.Tokens.Validate(ctx, req.GetJoinToken())
-	if err != nil {
-		return nil, status.Error(codes.PermissionDenied, err.Error())
-	}
+	var err error
 	var peerID string
 	if !s.DevInsecure {
 		peerID, err = peerWorkload(ctx)
@@ -55,48 +53,48 @@ func (s *Bootstrap) Register(ctx context.Context, req *discoveryv1.RegisterReque
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	tok, err = s.Tokens.Consume(ctx, req.GetJoinToken())
-	if err != nil {
-		return nil, status.Error(codes.PermissionDenied, err.Error())
+	label := s.CellLabel
+	if label == "" {
+		label = model.CellLabel
 	}
-	node := model.Node{Ephemeral: tok.Ephemeral,
-		ID:       id,
-		SpiffeID: peerID,
-		Name:     req.GetNodeName(),
-		Tenant:   tok.Tenant,
-		Intent:   model.IntentActive,
-	}
-	// A node belongs to the cell that enrolled it. Nothing else here knows
-	// where it is - the labels it reported are its own claim about itself -
-	// but the address it dialed to get here is a control plane in one region,
-	// and that is the answer. An unregioned control plane claims nothing.
-	if s.Region != "" {
-		label := s.CellLabel
-		if label == "" {
-			label = model.CellLabel
+	node, err := s.Tokens.Register(ctx, req.GetJoinToken(), peerID, req.GetRequestId(), func(tok enrollment.Token) (model.Node, error) {
+		node := model.Node{Ephemeral: tok.Ephemeral,
+			ID:       id,
+			SpiffeID: peerID,
+			Name:     req.GetNodeName(),
+			Tenant:   tok.Tenant,
+			Intent:   model.IntentActive,
 		}
-		node.ManagedLabels = map[string]string{label: s.Region}
-	}
-	data, err := json.Marshal(node)
+		// A node belongs to the cell that enrolled it. Nothing else here knows
+		// where it is - the labels it reported are its own claim about itself -
+		// but the address it dialed to get here is a control plane in one region,
+		// and that is the answer. An unregioned control plane claims nothing.
+		if s.Region != "" {
+			node.ManagedLabels = map[string]string{label: s.Region}
+		}
+		node.Status = model.NodeStatus{
+			ReportedLabels: req.GetLabels(), ReportedCapabilities: req.GetCapabilities(),
+			AgentVersion: req.GetAgentVersion(), Runtime: req.GetRuntime(), JoinedAt: s.now(), LastContact: s.now(),
+		}
+		return node, nil
+	})
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		code := codes.Internal
+		switch {
+		case errors.Is(err, enrollment.ErrInvalidToken), errors.Is(err, enrollment.ErrRevokedToken), errors.Is(err, enrollment.ErrExpiredToken), errors.Is(err, enrollment.ErrExhaustedToken), errors.Is(err, model.ErrDenied), errors.Is(err, store.ErrNotFound):
+			code = codes.PermissionDenied
+		case errors.Is(err, store.ErrConflict), errors.Is(err, store.ErrCommitUncertain):
+			code = codes.Unavailable
+		}
+		return nil, status.Error(code, err.Error())
 	}
-	if _, err := s.Objects.PutObject(ctx, store.Object{Key: model.NodeKey(id), Data: data}); err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	// What the agent reported about itself is status, and status is stripped
-	// from any write that does not carry a status owner. Writing it as part of
-	// the object above loses it silently, which leaves the node with no
-	// capabilities required for policy delivery.
-	reported := model.NodeStatus{
-		ReportedLabels: req.GetLabels(), ReportedCapabilities: req.GetCapabilities(),
-		AgentVersion: req.GetAgentVersion(), Runtime: req.GetRuntime(), JoinedAt: s.now(), LastContact: s.now(),
-	}
-	if _, err := store.PutStatus(ctx, s.Objects, model.NodeStatusOwner, model.NodeKey(id), reported); err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+	// A retry on another cell must not redirect the already-enrolled Node to
+	// addresses that cannot serve its committed region binding.
+	if node.ManagedLabels[label] != s.Region {
+		return nil, status.Error(codes.FailedPrecondition, "node is not enrolled in this controller region")
 	}
 	return &discoveryv1.RegisterResponse{
-		NodeId:              id,
+		NodeId:              node.ID,
 		TrustDomain:         s.TrustDomain,
 		ControllerAddresses: s.ControllerAddrs,
 	}, nil

@@ -17,7 +17,7 @@ import (
 // GRPCListen binds a gRPC service. Serve with GRPCServerCredentials and both
 // GRPCAuthorizer interceptors to enforce per-method L7 permissions.
 func (n *Node) GRPCListen(ctx context.Context, service ServiceRef) (*Listener, error) {
-	in := dataplane.Inbound(n.runtime.CurrentPlan(), service)
+	in := n.runtime.Inbound(n.runtime.CurrentPlan(), service)
 	if in == nil || in.Port.Protocol != "grpc" {
 		return nil, ErrDenied
 	}
@@ -94,7 +94,7 @@ func (n *Node) GRPCAuthorizer(service ServiceRef) (grpc.UnaryServerInterceptor, 
 		}
 		plan := n.runtime.CurrentPlan()
 		req := &http.Request{Method: "POST", URL: &url.URL{Path: method}}
-		if !dataplane.Fresh(plan) || !dataplane.AllowedInbound(plan, service, info.ID, true, req) {
+		if !dataplane.Fresh(plan) || !n.runtime.AllowedInbound(plan, service, info.ID, true, req) {
 			return status.Error(codes.PermissionDenied, "service access denied")
 		}
 		return nil

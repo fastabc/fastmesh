@@ -24,18 +24,11 @@ func (r *Runtime) DialPlan(ctx context.Context, ref ServiceRef, p *model.Plan) (
 	if !Fresh(p) {
 		return nil, model.ErrPlanUnavailable
 	}
-	var endpoints []model.Endpoint
-	found := false
-	for _, out := range p.Outbound {
-		if out.Service == ref.Service && out.Port.Name == ref.Port {
-			found = true
-			endpoints = out.Endpoints
-			break
-		}
-	}
-	if !found {
+	out := r.outbound(p, ref)
+	if out == nil {
 		return nil, model.ErrServiceUnavailable
 	}
+	endpoints := out.Endpoints
 	var last error = model.ErrNoEndpoints
 	defer r.notifyAvailability()
 	candidates := make([]dialCandidate, 0, len(endpoints))

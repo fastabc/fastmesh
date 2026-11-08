@@ -205,3 +205,14 @@ func TestExtensionConformance(t *testing.T) {
 		return s
 	})
 }
+
+func TestLeaseExpiryConformance(t *testing.T) {
+	storetest.RunLeaseExpiryConformance(t, func(t *testing.T) store.LeaseStore {
+		s, err := Open(filepath.Join(t.TempDir(), "state.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = s.Close() })
+		return s
+	})
+}

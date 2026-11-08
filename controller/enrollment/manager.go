@@ -198,17 +198,8 @@ func (m *Manager) Validate(ctx context.Context, raw string) (Token, error) {
 	if err != nil {
 		return Token{}, err
 	}
-	if stored.SecretHash != hashSecret(secret) {
-		return Token{}, ErrInvalidToken
-	}
-	if !stored.RevokedAt.IsZero() {
-		return Token{}, ErrRevokedToken
-	}
-	if !stored.ExpiresAt.IsZero() && !m.clock().Before(stored.ExpiresAt) {
-		return Token{}, ErrExpiredToken
-	}
-	if stored.MaxUses > 0 && stored.Uses >= stored.MaxUses {
-		return Token{}, ErrExhaustedToken
+	if err := m.validate(stored, secret, true); err != nil {
+		return Token{}, err
 	}
 	return stored.Token, nil
 }
@@ -275,17 +266,8 @@ func (m *Manager) Consume(ctx context.Context, raw string) (Token, error) {
 		if !exists {
 			return store.ErrNotFound
 		}
-		if stored.SecretHash != hashSecret(secret) {
-			return ErrInvalidToken
-		}
-		if !stored.RevokedAt.IsZero() {
-			return ErrRevokedToken
-		}
-		if !stored.ExpiresAt.IsZero() && !m.clock().Before(stored.ExpiresAt) {
-			return ErrExpiredToken
-		}
-		if stored.MaxUses > 0 && stored.Uses >= stored.MaxUses {
-			return ErrExhaustedToken
+		if err := m.validate(*stored, secret, true); err != nil {
+			return err
 		}
 		stored.Uses++
 		consumed = stored.Token
@@ -295,4 +277,21 @@ func (m *Manager) Consume(ctx context.Context, raw string) (Token, error) {
 		return Token{}, err
 	}
 	return consumed, nil
+}
+
+// Exhaustion prevents new registrations, but not retrieval of a committed result.
+func (m *Manager) validate(stored storedToken, secret string, checkUses bool) error {
+	if stored.SecretHash != hashSecret(secret) {
+		return ErrInvalidToken
+	}
+	if !stored.RevokedAt.IsZero() {
+		return ErrRevokedToken
+	}
+	if !stored.ExpiresAt.IsZero() && !m.clock().Before(stored.ExpiresAt) {
+		return ErrExpiredToken
+	}
+	if checkUses && stored.MaxUses > 0 && stored.Uses >= stored.MaxUses {
+		return ErrExhaustedToken
+	}
+	return nil
 }

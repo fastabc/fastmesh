@@ -21,7 +21,7 @@ service Discovery {
 }
 
 service Bootstrap {
-  // First join before steady-state SPIFFE identity is available.
+  // Enroll a transport-authenticated workload before steady-state discovery.
   rpc Register(RegisterRequest) returns (RegisterResponse);
 }
 
@@ -111,6 +111,8 @@ message RegisterRequest {
   repeated string capabilities = 4;
   optional string agent_version = 5;
   optional string runtime = 6;
+  // 16 random bytes encoded as 32 hex characters; persisted across retries.
+  string request_id = 7;
 }
 
 message RegisterResponse {
