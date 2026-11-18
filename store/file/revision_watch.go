@@ -59,13 +59,7 @@ func (s *Store) closeRevisionWatchLocked(id uint64) {
 
 func (s *Store) broadcastRevisionLocked(batch store.RevisionBatch) {
 	for id, watcher := range s.revisionWatchers {
-		filtered := store.RevisionBatch{Revision: batch.Revision}
-		for _, event := range batch.Events {
-			if (watcher.tenant == "" || event.Object.Key.Tenant == watcher.tenant) && watcher.kinds.Matches(event.Object.Key.Kind) {
-				event.Object = storeutil.CloneObject(event.Object)
-				filtered.Events = append(filtered.Events, event)
-			}
-		}
+		filtered := storeutil.FilterRevision(batch, watcher.tenant, watcher.kinds)
 		if len(filtered.Events) == 0 {
 			continue
 		}
