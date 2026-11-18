@@ -8,6 +8,7 @@ import (
 
 	discoveryv1 "github.com/fastabc/fastmesh/api/discovery/v1"
 	"github.com/fastabc/fastmesh/model"
+	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -122,6 +123,29 @@ func TestDiscoveryAckTimeoutReleasesStream(t *testing.T) {
 			}
 			waitStreams(t, s, 0)
 		})
+	}
+}
+
+func TestMatchingDeltaNackRequestsFullStream(t *testing.T) {
+	_, client := boundedServer(t, Config{})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	stream, err := client.DeltaAggregatedResources(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&discoveryv1.DeltaDiscoveryRequest{Node: &discoveryv1.Node{Id: "a"}}); err != nil {
+		t.Fatal(err)
+	}
+	response, err := stream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&discoveryv1.DeltaDiscoveryRequest{ResponseNonce: response.Nonce, ErrorDetail: &rpcstatus.Status{Message: "rejected"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Recv(); status.Code(err) != codes.Unimplemented {
+		t.Fatalf("delta NACK: %v", err)
 	}
 }
 

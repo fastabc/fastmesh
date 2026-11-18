@@ -49,13 +49,18 @@ func deltaCodec() streamCodec[discoveryv1.DeltaDiscoveryRequest, discoveryv1.Del
 	}
 }
 
+type pendingPush struct {
+	nonce         string
+	revision      string
+	inputRevision int64
+	sentAt        time.Time
+}
+
 type sessionState struct {
-	lastSent, acked, nacked       string
-	pendingNonce, pendingRevision string
-	pendingInput                  int64
-	pendingSince                  time.Time
-	dirty                         bool
-	from                          string
+	lastSent, acked, nacked string
+	pending                 pendingPush
+	dirty                   bool
+	from                    string
 }
 
 func runSession[Req, Resp any](s *Server, stream grpc.BidiStreamingServer[Req, Resp], codec streamCodec[Req, Resp], mode string) (streamErr error) {
@@ -100,7 +105,7 @@ func runSession[Req, Resp any](s *Server, stream grpc.BidiStreamingServer[Req, R
 	ackTimer.Stop()
 	defer ackTimer.Stop()
 	push := func(force bool) (pushErr error) {
-		if state.pendingNonce != "" {
+		if state.pending.nonce != "" {
 			state.dirty = true
 			return nil
 		}
@@ -136,8 +141,13 @@ func runSession[Req, Resp any](s *Server, stream grpc.BidiStreamingServer[Req, R
 		if err := sendResponse(ctx, func() error { return stream.Send(response) }, s.cfg.AckTimeout); err != nil {
 			return err
 		}
-		state.lastSent, state.pendingNonce, state.pendingRevision = version, nonce, built.Revision
-		state.pendingInput, state.pendingSince = built.InputRevision, time.Now()
+		state.lastSent = version
+		state.pending = pendingPush{
+			nonce:         nonce,
+			revision:      built.Revision,
+			inputRevision: built.InputRevision,
+			sentAt:        time.Now(),
+		}
 		ackTimer.Reset(s.cfg.AckTimeout)
 		return nil
 	}
@@ -153,7 +163,7 @@ func runSession[Req, Resp any](s *Server, stream grpc.BidiStreamingServer[Req, R
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ackTimer.C:
-			s.recordAckWait("timeout", state.pendingSince)
+			s.recordAckWait("timeout", state.pending.sentAt)
 			return status.Error(codes.DeadlineExceeded, "discovery: acknowledgement timeout")
 		case err := <-recvErr:
 			if errors.Is(err, io.EOF) {
@@ -162,7 +172,7 @@ func runSession[Req, Resp any](s *Server, stream grpc.BidiStreamingServer[Req, R
 			return err
 		case request := <-requests:
 			nonce, version, nack := codec.ack(request)
-			if state.pendingNonce == "" || nonce != state.pendingNonce || (!codec.delta && !nack && version != state.pendingRevision) {
+			if state.pending.nonce == "" || nonce != state.pending.nonce || (!codec.delta && !nack && version != state.pending.revision) {
 				continue
 			}
 			ackTimer.Stop()
@@ -170,7 +180,7 @@ func runSession[Req, Resp any](s *Server, stream grpc.BidiStreamingServer[Req, R
 			if nack {
 				result = "nack"
 			}
-			s.recordAckWait(result, state.pendingSince)
+			s.recordAckWait(result, state.pending.sentAt)
 			s.recordAck(!nack)
 			if nack {
 				if codec.delta {
@@ -178,13 +188,13 @@ func runSession[Req, Resp any](s *Server, stream grpc.BidiStreamingServer[Req, R
 				}
 				state.nacked = state.lastSent
 			} else {
-				s.recordApplied(node.GetId(), state.pendingInput)
+				s.recordApplied(node.GetId(), state.pending.inputRevision)
 				state.acked = state.lastSent
 				if codec.delta {
-					state.from = state.pendingRevision
+					state.from = state.pending.revision
 				}
 			}
-			state.pendingNonce, state.pendingRevision = "", ""
+			state.pending = pendingPush{}
 			if state.dirty {
 				state.dirty = false
 				if err := push(false); err != nil {

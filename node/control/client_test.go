@@ -11,6 +11,8 @@ import (
 	"github.com/fastabc/fastmesh/model"
 	"github.com/fastabc/fastmesh/policy/apply"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type fullStream struct {
@@ -23,6 +25,16 @@ func (s *fullStream) Send(r *discoveryv1.DiscoveryRequest) error {
 	return nil
 }
 func (s *fullStream) Recv() (*discoveryv1.DiscoveryResponse, error) { return nil, io.EOF }
+
+type deltaStream struct {
+	grpc.BidiStreamingClient[discoveryv1.DeltaDiscoveryRequest, discoveryv1.DeltaDiscoveryResponse]
+	sent []*discoveryv1.DeltaDiscoveryRequest
+}
+
+func (s *deltaStream) Send(r *discoveryv1.DeltaDiscoveryRequest) error {
+	s.sent = append(s.sent, r)
+	return nil
+}
 
 func TestTypeDispatchAndContactFollowSuccessfulApply(t *testing.T) {
 	var applied, contacts int
@@ -60,6 +72,53 @@ func TestTypeDispatchAndContactFollowSuccessfulApply(t *testing.T) {
 	}
 	if len(stream.sent) != 3 {
 		t.Fatal("durable but unpublished decision was ACKed/NACKed")
+	}
+}
+
+func TestDeltaAfterApplyAndRecovery(t *testing.T) {
+	var applyErr, hookErr error
+	var hooks, contacts int
+	node := &discoveryv1.Node{Id: "orders"}
+	response := &discoveryv1.DeltaDiscoveryResponse{SystemVersionInfo: "new", Nonce: "nonce", Node: node}
+	client := New(Config{
+		TypeURL: model.PlanTypeURL,
+		Node:    func() *discoveryv1.Node { return node },
+		Appliers: map[string]Applier{model.PlanTypeURL: {
+			Delta: func(context.Context, *discoveryv1.DeltaDiscoveryResponse) error { return applyErr },
+		}},
+		AfterApply: func(_ context.Context, version string, gotNode *discoveryv1.Node, err error) error {
+			hooks++
+			if version != response.SystemVersionInfo || gotNode != node || err != applyErr {
+				t.Fatalf("unexpected apply result: version=%q node=%v err=%v", version, gotNode, err)
+			}
+			return hookErr
+		},
+		OnContact: func() { contacts++ },
+	})
+	stream := &deltaStream{}
+	ctx := context.Background()
+	if err := client.HandleDelta(ctx, stream, response); err != nil {
+		t.Fatal(err)
+	}
+	if hooks != 1 || contacts != 1 || len(stream.sent) != 1 || stream.sent[0].ResponseNonce != response.Nonce || stream.sent[0].ErrorDetail != nil {
+		t.Fatal("successful apply must record contact and ACK the response nonce")
+	}
+
+	applyErr = errors.New("rejected by applier")
+	hookErr = ErrUnsignedDelta
+	if err := client.HandleDelta(ctx, stream, response); status.Code(err) != codes.Unimplemented {
+		t.Fatalf("delta fallback: %v", err)
+	}
+	if hooks != 2 || contacts != 1 || len(stream.sent) != 2 || stream.sent[1].ErrorDetail.GetMessage() != hookErr.Error() {
+		t.Fatal("expected a NACK with the hook's error before fallback")
+	}
+
+	applyErr, hookErr = apply.ErrRecoveryRequired, nil
+	if err := client.HandleDelta(ctx, stream, response); !errors.Is(err, apply.ErrRecoveryRequired) {
+		t.Fatalf("recovery: %v", err)
+	}
+	if hooks != 2 || contacts != 1 || len(stream.sent) != 2 {
+		t.Fatal("recovery must exit before callbacks or a response")
 	}
 }
 

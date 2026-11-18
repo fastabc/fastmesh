@@ -36,6 +36,23 @@ func (c *Client) applyDelta(ctx context.Context, r *discoveryv1.DeltaDiscoveryRe
 	return handler.Delta(ctx, r)
 }
 
+func (c *Client) afterApply(ctx context.Context, version string, node *discoveryv1.Node, applyErr error) error {
+	if c.cfg.AfterApply != nil {
+		applyErr = c.cfg.AfterApply(ctx, version, node, applyErr)
+	}
+	if applyErr != nil {
+		return applyErr
+	}
+	c.contacted.Store(true)
+	if c.cfg.ControlContact != nil {
+		c.cfg.ControlContact(c.address, nil)
+	}
+	if c.cfg.OnContact != nil {
+		c.cfg.OnContact()
+	}
+	return nil
+}
+
 // HandleFull verifies and applies one pushed response, then ACK/NACKs it. The
 // ACK carries the accepted revision; a NACK keeps the last-good version and
 // attaches the failure detail so the controller stops re-pushing the bad one.
@@ -44,18 +61,7 @@ func (c *Client) HandleFull(ctx context.Context, stream grpc.BidiStreamingClient
 	if errors.Is(applyErr, apply.ErrRecoveryRequired) {
 		return applyErr
 	}
-	if c.cfg.AfterApply != nil {
-		applyErr = c.cfg.AfterApply(ctx, resp.GetVersionInfo(), resp.GetNode(), applyErr)
-	}
-	if applyErr == nil {
-		c.contacted.Store(true)
-		if c.cfg.ControlContact != nil {
-			c.cfg.ControlContact(c.address, nil)
-		}
-		if c.cfg.OnContact != nil {
-			c.cfg.OnContact()
-		}
-	}
+	applyErr = c.afterApply(ctx, resp.GetVersionInfo(), resp.GetNode(), applyErr)
 
 	req := &discoveryv1.DiscoveryRequest{
 		Node:          c.cfg.Node(),
@@ -76,18 +82,7 @@ func (c *Client) HandleDelta(ctx context.Context, stream grpc.BidiStreamingClien
 	if errors.Is(applyErr, apply.ErrRecoveryRequired) {
 		return applyErr
 	}
-	if c.cfg.AfterApply != nil {
-		applyErr = c.cfg.AfterApply(ctx, resp.GetSystemVersionInfo(), resp.GetNode(), applyErr)
-	}
-	if applyErr == nil {
-		c.contacted.Store(true)
-		if c.cfg.ControlContact != nil {
-			c.cfg.ControlContact(c.address, nil)
-		}
-		if c.cfg.OnContact != nil {
-			c.cfg.OnContact()
-		}
-	}
+	applyErr = c.afterApply(ctx, resp.GetSystemVersionInfo(), resp.GetNode(), applyErr)
 
 	req := &discoveryv1.DeltaDiscoveryRequest{
 		Node:          c.cfg.Node(),
