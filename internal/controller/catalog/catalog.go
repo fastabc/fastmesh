@@ -18,12 +18,10 @@ func Ranges(tenant string) []store.Range {
 }
 
 type Catalog struct {
-	Services        map[string]model.ServiceRecord
-	Objects         map[string]store.Object
-	Grants          []model.BindGrant
-	Access          []model.ServiceAccess
-	EndpointObjects map[store.ObjectKey]store.Object
-	Groups          map[string]model.WorkloadGroup
+	Services map[string]model.ServiceRecord
+	Grants   []model.BindGrant
+	Access   []model.ServiceAccess
+	Groups   map[string]model.WorkloadGroup
 }
 
 // Decode requires all catalog ranges from the same View, including loaded-empty
@@ -31,7 +29,8 @@ type Catalog struct {
 // Unknown fields are ignored; malformed or invalid objects are isolated so
 // they cannot prevent unrelated services and policies from being compiled.
 func Decode(view store.View, tenant string) (Catalog, error) {
-	c := Catalog{Services: map[string]model.ServiceRecord{}, Objects: map[string]store.Object{}, EndpointObjects: map[store.ObjectKey]store.Object{}, Groups: map[string]model.WorkloadGroup{}}
+	c := Catalog{Services: map[string]model.ServiceRecord{}, Groups: map[string]model.WorkloadGroup{}}
+	endpoints := make(map[store.ObjectKey]model.Endpoint)
 	for _, r := range Ranges(tenant) {
 		objects, ok := view.Objects[r]
 		if !ok {
@@ -51,11 +50,16 @@ func Decode(view store.View, tenant string) (Catalog, error) {
 				}
 				c.Groups[group.Name] = group
 			case model.EndpointKind:
-				if _, err := DecodeEndpoint(obj); err != nil {
+				record, err := DecodeEndpoint(obj)
+				if err != nil {
 					slog.Warn("catalog: ignoring invalid endpoint", "key", obj.Key, "error", err)
 					continue
 				}
-				c.EndpointObjects[obj.Key] = obj
+				if record.RemovedAt.IsZero() {
+					endpoints[obj.Key] = record.Endpoint
+				} else {
+					delete(endpoints, obj.Key)
+				}
 			case model.ServiceKind:
 				var record model.ServiceRecord
 				if err := DecodeObject(obj.Data, &record); err != nil {
@@ -71,7 +75,7 @@ func Decode(view store.View, tenant string) (Catalog, error) {
 					continue
 				}
 				record.Status = model.ServiceStatus{}
-				c.Services[obj.Key.Name], c.Objects[obj.Key.Name] = record, obj
+				c.Services[obj.Key.Name] = record
 			case model.BindGrantKind:
 				grant, err := DecodeBindGrant(obj)
 				if err != nil {
@@ -100,19 +104,15 @@ func Decode(view store.View, tenant string) (Catalog, error) {
 		}
 	}
 	// Assemble endpoint status from independent instance records.
-	for _, obj := range c.EndpointObjects {
-		record, _ := DecodeEndpoint(obj)
-		e := record.Endpoint
+	for _, e := range endpoints {
 		service, ok := c.Services[e.Service]
 		if !ok {
 			continue
 		}
-		if record.RemovedAt.IsZero() {
-			if _, exists := service.Spec.Port(e.Port); exists {
-				service.Status.Endpoints = append(service.Status.Endpoints, e)
-			}
+		if _, exists := service.Spec.Port(e.Port); exists {
+			service.Status.Endpoints = append(service.Status.Endpoints, e)
+			c.Services[e.Service] = service
 		}
-		c.Services[e.Service] = service
 	}
 	for name, service := range c.Services {
 		sort.Slice(service.Status.Endpoints, func(i, j int) bool {

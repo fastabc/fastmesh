@@ -37,16 +37,15 @@ func seed(t *testing.T, s store.ObjectStore) (model.Session, endpoint.Registrati
 
 // expireCatalog drives the coherent-view test scenario through ExpireObject.
 func expireCatalog(m *endpoint.Manager, ctx context.Context, tenant string) error {
-	c, err := readCatalog(m.Viewer, ctx, tenant)
+	r := store.Range{Tenant: tenant, Kind: model.EndpointKind}
+	view, err := m.Viewer.View(ctx, []store.Range{r})
 	if err != nil {
 		return err
 	}
-	for _, obj := range c.Objects {
-		if err := m.ExpireObject(ctx, obj); err != nil {
-			return err
+	for _, obj := range view.Objects[r] {
+		if _, err := catalog.DecodeEndpoint(obj); err != nil {
+			continue
 		}
-	}
-	for _, obj := range c.EndpointObjects {
 		if err := m.ExpireObject(ctx, obj); err != nil {
 			return err
 		}
