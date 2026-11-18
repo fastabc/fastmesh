@@ -1,6 +1,6 @@
 module github.com/fastabc/fastmesh
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/spiffe/go-spiffe/v2 v2.9.0
@@ -20,8 +20,6 @@ require (
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.33.0 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.7.3 // indirect
-	go.opentelemetry.io/otel v1.47.0 // indirect
-	go.opentelemetry.io/otel/sdk/metric v1.45.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
