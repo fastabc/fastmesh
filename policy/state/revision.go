@@ -1,8 +1,6 @@
 package state
 
 import (
-	"compress/gzip"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -33,15 +31,10 @@ func (s *Store) loadInputRevision() (int64, error) {
 		return 0, err
 	}
 	defer f.Close()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return 0, err
-	}
-	defer gz.Close()
 	var metadata struct {
 		InputRevision int64 `json:"input_revision"`
 	}
-	if err = json.NewDecoder(gz).Decode(&metadata); err != nil {
+	if err := readGzipJSON(f, &metadata); err != nil {
 		return 0, err
 	}
 	return metadata.InputRevision, nil

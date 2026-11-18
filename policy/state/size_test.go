@@ -5,8 +5,21 @@ import (
 	"compress/gzip"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 )
+
+func readTestWatermark(t *testing.T, encoded []byte) error {
+	t.Helper()
+	dir := t.TempDir()
+	s := openState(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, snapshotFile), encoded, 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.InputRevision()
+	return err
+}
 
 func TestStateDecodedSizeBoundary(t *testing.T) {
 	for _, extra := range []int{0, 1} {
@@ -25,12 +38,13 @@ func TestStateDecodedSizeBoundary(t *testing.T) {
 			t.Fatal(err)
 		}
 		var out map[string]any
-		err := readGzipJSON(bytes.NewReader(b.Bytes()), &out)
-		if extra == 0 && err != nil {
-			t.Fatal(err)
-		}
-		if extra == 1 && !errors.Is(err, ErrStateTooLarge) {
-			t.Fatalf("oversize: %v", err)
+		for _, err := range []error{readGzipJSON(bytes.NewReader(b.Bytes()), &out), readTestWatermark(t, b.Bytes())} {
+			if extra == 0 && err != nil {
+				t.Fatal(err)
+			}
+			if extra == 1 && !errors.Is(err, ErrStateTooLarge) {
+				t.Fatalf("oversize: %v", err)
+			}
 		}
 	}
 }
@@ -50,7 +64,7 @@ func TestStateRejectsTrailingJSONAndCorruptGzip(t *testing.T) {
 		_, _ = gz.Write([]byte(raw))
 		_ = gz.Close()
 		var out any
-		if err := readGzipJSON(&b, &out); err == nil {
+		if readTestWatermark(t, b.Bytes()) == nil || readGzipJSON(&b, &out) == nil {
 			t.Fatal("accepted malformed JSON")
 		}
 	}
@@ -60,7 +74,7 @@ func TestStateRejectsTrailingJSONAndCorruptGzip(t *testing.T) {
 	}
 	b[len(b)-5] ^= 1
 	var out any
-	if err := readGzipJSON(bytes.NewReader(b), &out); err == nil {
+	if readTestWatermark(t, b) == nil || readGzipJSON(bytes.NewReader(b), &out) == nil {
 		t.Fatal("accepted corrupt gzip")
 	}
 }
