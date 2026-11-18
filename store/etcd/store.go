@@ -142,9 +142,7 @@ func New(client *clientv3.Client, prefix string) *Store {
 // The caller that opened the client retains responsibility for closing it.
 func (s *Store) Client() *clientv3.Client { return s.client }
 
-// Prefix is where this store keeps its objects. The accounting plane derives
-// its own prefix from it so a deployment that moved its objects does not leave
-// its balances behind under the default path.
+// Prefix returns the root key prefix for this store's objects and leases.
 func (s *Store) Prefix() string { return s.prefix }
 
 // Close closes the underlying etcd client.

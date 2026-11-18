@@ -29,7 +29,15 @@ LeaseStore. Built-in backends are `store/memory`, `store/file` and `store/etcd`.
 The object backend must provide coherent View, complete revision watches, and
 atomic fenced object transactions for registration;
 use the shared store conformance helpers for custom backends. Run `Serve(ctx, listener)`.
-Use shared etcd for multiple Controllers; assign Region/CellLabel consistently.
+Use shared etcd for multiple Controllers and assign Region/CellLabel consistently.
+Use the same backend for objects and leases. The etcd writer checks the leader lease
+in its write transaction, including when the object store is wrapped with `store.NewMetered`.
+Memory and file target a single Controller owner. Their generic single-object write
+path checks the lease before writing. Registration uses an atomic fenced transaction.
+
+Import the backend in the host that creates it. The root module maintains the etcd
+adapter and tests together with the SDK. Applications can inspect their compiled
+package dependencies with `GOWORK=off go list -deps .`.
 
 Create a Service and its named protocol ports with `PutService`. BindGrant permits
 a workload or WorkloadGroup to publish the service. ServiceAccess permits a caller

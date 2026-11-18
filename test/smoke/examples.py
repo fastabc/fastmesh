@@ -85,6 +85,9 @@ def build(example, directory):
     run(["go", "mod", "edit", "-require=github.com/fastabc/fastmesh@v0.0.0",
          "-replace=github.com/fastabc/fastmesh=" + str(ROOT)], directory)
     run(["go", "mod", "tidy"], directory)
+    deps = run(["go", "list", "-deps", "."], directory).splitlines()
+    assert not any(p.startswith("go.etcd.io/") or p == "github.com/fastabc/fastmesh/store/etcd"
+                   for p in deps), f"{example} unexpectedly imports the etcd backend"
     run(["go", "build", "-o", "demo", "."], directory)
     return str(directory / "demo")
 

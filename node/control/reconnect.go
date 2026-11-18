@@ -10,9 +10,9 @@ import (
 	"google.golang.org/grpc"
 )
 
-// Run connects to the controllers in addrs, streams snapshots, and applies them
-// until ctx is cancelled. Each stream failure rotates to the next address
-// (failover) after a backoff, so it returns only when ctx is done.
+// Run rotates through controllers after retryable stream failures. It returns
+// on cancellation, missing addresses, a dial configuration error, a caller-selected
+// terminal error, or an apply decision that requires local recovery.
 func (c *Client) Run(ctx context.Context, addrs []string) error {
 	if len(addrs) == 0 {
 		return errors.New("ads: no controller addresses")

@@ -5,16 +5,9 @@ import (
 	"errors"
 )
 
-// BulkObjectDeleter removes many objects as one durable transition.
-//
-// It exists for the one caller that deletes objects by the thousand: the
-// offline prune of runtime state earlier releases wrote into the configuration
-// store. The file backend re-serializes and fsyncs its entire contents per
-// write, so deleting ten thousand keys one at a time costs ten thousand full
-// rewrites of a store that is large precisely because those keys are in it.
-//
-// Implementations MUST treat a key that does not exist as already deleted, so
-// an interrupted run can simply be repeated.
+// BulkObjectDeleter removes the requested keys and counts completed deletions.
+// Missing keys are skipped. A backend may commit in batches and return a
+// partial count with an error; repeating the request is safe.
 type BulkObjectDeleter interface {
 	DeleteObjects(ctx context.Context, keys []ObjectKey) (int, error)
 }
