@@ -110,3 +110,11 @@ func (s fencedStore) check(ctx context.Context) error {
 	}
 	return nil
 }
+
+// FencedObjectStore preserves a backend's atomic fence when metrics are enabled.
+func (s *MeteredStore) FencedObjectStore(leases LeaseStore, source FenceTokenSource) ObjectStore {
+	if native, ok := s.next.(nativeFencer); ok {
+		return NewMetered(native.FencedObjectStore(leases, source), s.recorder)
+	}
+	return fencedStore{inner: s, leases: leases, source: source}
+}
