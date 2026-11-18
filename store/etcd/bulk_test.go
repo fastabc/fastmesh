@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/fastabc/fastmesh/store"
 )
@@ -80,5 +81,35 @@ func TestDeleteObjectsSpansMoreKeysThanOneTransactionHolds(t *testing.T) {
 	}
 	if len(left) != 0 {
 		t.Errorf("%d Route objects survived the bulk delete", len(left))
+	}
+}
+
+func TestFencedBulkDeleteUsesOneTerm(t *testing.T) {
+	s := openEtcd(t)
+	ctx := context.Background()
+	lease, ok, err := s.AcquireLease(ctx, store.LeaseRequest{Name: "controller", Holder: "active", TTL: time.Minute})
+	if err != nil || !ok {
+		t.Fatalf("acquire: %v %v", ok, err)
+	}
+	calls := 0
+	writer := store.FencedFunc(s, s, func() store.FenceToken {
+		calls++
+		return store.FenceToken{Name: lease.Name, Holder: lease.Holder, Token: lease.Token}
+	})
+	if n, err := store.DeleteObjects(ctx, writer, nil); n != 0 || err != nil || calls != 0 {
+		t.Fatalf("empty batch: removed=%d calls=%d err=%v", n, calls, err)
+	}
+	key := store.ObjectKey{Tenant: "default", Kind: "test", Name: "one"}
+	if _, err := s.PutObject(ctx, store.Object{Key: key}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := store.DeleteObjects(ctx, writer, []store.ObjectKey{key, key}); err != nil || n != 1 || calls != 1 {
+		t.Fatalf("removed=%d calls=%d err=%v", n, calls, err)
+	}
+	if err := s.ReleaseLease(ctx, store.LeaseRequest{Name: lease.Name, Holder: lease.Holder, Token: lease.Token}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := store.DeleteObjects(ctx, writer, []store.ObjectKey{key}); n != 0 || !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("expired term: removed=%d err=%v", n, err)
 	}
 }

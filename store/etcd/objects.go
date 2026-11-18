@@ -3,6 +3,7 @@ package etcd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/fastabc/fastmesh/store"
@@ -248,6 +249,34 @@ func (s fencedObjectStore) DeleteObject(ctx context.Context, key store.ObjectKey
 	if err != nil {
 		return err
 	}
+	return s.deleteObjectWithToken(ctx, key, token)
+}
+
+// Hold one term across the entire operation, even if the elector is promoted again.
+func (s fencedObjectStore) DeleteObjects(ctx context.Context, keys []store.ObjectKey) (int, error) {
+	if len(keys) == 0 {
+		return 0, nil
+	}
+	token, err := s.fenceToken(ctx)
+	if err != nil {
+		return 0, err
+	}
+	removed := 0
+	for _, key := range keys {
+		err := s.deleteObjectWithToken(ctx, key, token)
+		switch {
+		case err == nil:
+			removed++
+		case errors.Is(err, store.ErrNotFound):
+			continue
+		default:
+			return removed, err
+		}
+	}
+	return removed, nil
+}
+
+func (s fencedObjectStore) deleteObjectWithToken(ctx context.Context, key store.ObjectKey, token store.FenceToken) error {
 	key = normalizeObjectKey(key)
 	txn, err := s.client.Txn(ctx).
 		If(clientv3.Compare(clientv3.LeaseValue(s.leaseKey(token.Name)), "=", token.Token)).
