@@ -101,15 +101,12 @@ Controller 管理 Service、BindGrant、ServiceAccess 和 WorkloadGroup；提供
 | 协议与代码生成 | [API](api/README.md) |
 | 测试与 CI | [测试](docs/testing.md) |
 | 发布要求 | [v0.1.0](docs/release.md) |
-| 架构评价、实测与开源项目对比 | [2026-11-07 深度评审](docs/plans/archive/2026-11-07-architecture-review.md) |
-| 重构建议与问题执行计划 | [Spec](docs/plans/archive/2026-11-07-refactoring-spec.md) · [Bug 描述](docs/plans/archive/2026-11-07-bugs.md) · [Phased Plan](docs/plans/archive/2026-11-07-phased-plan.md) |
 
 需要显式集成 Go SDK。HTTP 授权支持方法和路径，不支持 header/query/body 条件。
 Controller 高可用使用共享 etcd；文件存储仅允许单个独占持有者。
 业务配置的校验、持久化和发布确认由应用负责。
 SDK 升级随应用发布；透明跨语言拦截、通用流量路由不属于当前功能。
-实现状态、实测收益与暂缓项见[执行记录](docs/plans/archive/2026-11-08-execution-report.md)；
-条件性重构和发布验收均单独标记。
+部署验证见[测试指南](docs/testing.md)，发布条件见[发布指南](docs/release.md)。
 
 ## 验证
 

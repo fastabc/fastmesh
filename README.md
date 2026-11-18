@@ -106,8 +106,6 @@ after the Nodes using it have stopped. Observer callbacks must return promptly.
 | Wire contracts and generation | [API](api/README.md) |
 | Local and CI checks | [Testing](docs/testing.md) |
 | Release criteria | [v0.1.0](docs/release.md) |
-| Architecture assessment and tradeoffs | [2026-11-07 review (Chinese)](docs/plans/archive/2026-11-07-architecture-review.md) |
-| Refactoring specification and findings | [Spec](docs/plans/archive/2026-11-07-refactoring-spec.md) · [Issues](docs/plans/archive/2026-11-07-bugs.md) · [Phased plan](docs/plans/archive/2026-11-07-phased-plan.md) |
 
 ## Boundaries
 
@@ -118,9 +116,7 @@ volatile; file storage has a single exclusive owner. Applications own business
 configuration validation, persistence and rollout acknowledgements.
 SDK upgrades ship with applications. Transparent cross-language interception,
 general traffic routing and header/query/body policy are outside the current scope.
-Implementation status and measurements are recorded in the
-[execution report](docs/plans/archive/2026-11-08-execution-report.md); conditional work and
-release validation remain explicit.
+Deployment checks are in the [testing guide](docs/testing.md). Release criteria are in the [release guide](docs/release.md).
 
 ## Development
 
