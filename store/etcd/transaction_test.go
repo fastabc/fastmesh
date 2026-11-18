@@ -2,6 +2,7 @@ package etcd
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -62,5 +63,28 @@ func TestMeteredEtcdKeepsNativeFence(t *testing.T) {
 		if metrics[op+"/ok"] != 1 {
 			t.Errorf("%s: metrics=%v", op, metrics)
 		}
+	}
+
+	if err := s.ReleaseLease(ctx, store.LeaseRequest{Name: lease.Name, Holder: lease.Holder, Token: lease.Token}); err != nil {
+		t.Fatal(err)
+	}
+	next, ok, err := s.AcquireLease(ctx, store.LeaseRequest{Name: lease.Name, Holder: "next", TTL: time.Minute})
+	if err != nil || !ok {
+		t.Fatalf("handoff: %v %v", ok, err)
+	}
+	current := store.Fenced(s, s, next.Name, next.Holder, next.Token)
+	obj, err := current.PutObject(ctx, store.Object{Key: store.ObjectKey{Tenant: "default", Kind: "test", Name: "survivor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, backend := range []store.ObjectStore{s, store.NewMetered(s, metrics)} {
+		stale := store.Fenced(backend, s, lease.Name, lease.Holder, lease.Token)
+		if n, err := store.DeleteObjects(ctx, stale, []store.ObjectKey{obj.Key}); n != 0 || !errors.Is(err, store.ErrConflict) {
+			t.Errorf("%T after handoff: removed=%d err=%v", backend, n, err)
+		}
+	}
+	got, err := s.GetObject(ctx, obj.Key)
+	if err != nil || got.ResourceVersion != obj.ResourceVersion {
+		t.Fatalf("object after stale writes: version=%d err=%v", got.ResourceVersion, err)
 	}
 }
