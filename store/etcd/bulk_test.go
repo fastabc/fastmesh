@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fastabc/fastmesh/store"
+	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 func TestEtcdStoreImplementsBulkObjectDeleter(t *testing.T) {
@@ -111,5 +112,45 @@ func TestFencedBulkDeleteUsesOneTerm(t *testing.T) {
 	}
 	if n, err := store.DeleteObjects(ctx, writer, []store.ObjectKey{key}); n != 0 || !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("expired term: removed=%d err=%v", n, err)
+	}
+}
+
+// Cancel after the first delete was confirmed, before a second can commit.
+type cancelSecondTxn struct {
+	clientv3.KV
+	cancel context.CancelFunc
+	calls  int
+}
+
+func (kv *cancelSecondTxn) Txn(ctx context.Context) clientv3.Txn {
+	kv.calls++
+	if kv.calls == 2 {
+		kv.cancel()
+	}
+	return kv.KV.Txn(ctx)
+}
+
+func TestFencedBulkDeleteReturnsConfirmedCount(t *testing.T) {
+	s := openEtcd(t)
+	ctx := context.Background()
+	lease, ok, err := s.AcquireLease(ctx, store.LeaseRequest{Name: "leader", Holder: "one", TTL: time.Minute})
+	if err != nil || !ok {
+		t.Fatalf("acquire: %v %v", ok, err)
+	}
+	writer := store.Fenced(s, s, lease.Name, lease.Holder, lease.Token)
+	keys := []store.ObjectKey{{Tenant: "default", Kind: "test", Name: "first"}, {Tenant: "default", Kind: "test", Name: "second"}}
+	for _, key := range keys {
+		if _, err := writer.PutObject(ctx, store.Object{Key: key}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deleteCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	s.client.KV = &cancelSecondTxn{KV: s.client.KV, cancel: cancel}
+	if n, err := store.DeleteObjects(deleteCtx, writer, keys); n != 1 || !errors.Is(err, context.Canceled) {
+		t.Fatalf("interrupted batch: removed=%d err=%v", n, err)
+	}
+	if n, err := store.DeleteObjects(ctx, writer, keys); n != 1 || err != nil {
+		t.Fatalf("retry: removed=%d err=%v", n, err)
 	}
 }

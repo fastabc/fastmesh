@@ -2,11 +2,13 @@ package etcd
 
 import (
 	"context"
-	clientv3 "go.etcd.io/etcd/client/v3"
+	"errors"
 	"testing"
 
 	"github.com/fastabc/fastmesh/store"
 	"github.com/fastabc/fastmesh/store/storetest"
+	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
+	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 func TestViewConformance(t *testing.T) {
@@ -53,5 +55,36 @@ func TestViewReadsSharedPrefixOnce(t *testing.T) {
 	v.Objects[all][0].Labels["tag"] = "changed"
 	if obj := v.Objects[services][0]; string(obj.Data) != "original" || obj.Labels["tag"] != "original" {
 		t.Fatal("overlapping ranges share object storage")
+	}
+}
+
+// Simulate compaction between two distinct prefix reads without compacting
+// the shared integration server.
+type compactedViewKV struct {
+	clientv3.KV
+	revision  int64
+	requested int64
+}
+
+func (k *compactedViewKV) Get(ctx context.Context, key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
+	if k.revision != 0 {
+		op := clientv3.OpGet(key, opts...)
+		k.requested = op.Rev()
+		return nil, rpctypes.ErrCompacted
+	}
+	resp, err := k.KV.Get(ctx, key, opts...)
+	if err == nil {
+		k.revision = resp.Header.Revision
+	}
+	return resp, err
+}
+
+func TestViewDiscardsPartialResultOnCompaction(t *testing.T) {
+	s := openEtcd(t)
+	kv := &compactedViewKV{KV: s.client.KV}
+	s.client.KV = kv
+	v, err := s.View(context.Background(), []store.Range{{Tenant: "alpha"}, {Tenant: "beta"}})
+	if !errors.Is(err, rpctypes.ErrCompacted) || kv.revision == 0 || kv.requested != kv.revision || v.Revision != 0 || v.Objects != nil {
+		t.Fatalf("revision=%d requested=%d view=%+v err=%v", kv.revision, kv.requested, v, err)
 	}
 }
