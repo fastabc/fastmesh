@@ -17,7 +17,7 @@ func (s *Store) WatchRevisions(ctx context.Context, tenant string, kinds ...stri
 	if len(kinds) == 1 {
 		prefix = s.objectListPrefix(tenant, kinds[0])
 	}
-	resp, err := s.client.Get(ctx, prefix, clientv3.WithPrefix(), clientv3.WithKeysOnly())
+	resp, err := s.client.Get(ctx, prefix, clientv3.WithPrefix(), clientv3.WithKeysOnly(), clientv3.WithLimit(1))
 	if err != nil {
 		close(out)
 		return out, err

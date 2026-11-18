@@ -17,7 +17,7 @@ func (s *Store) WatchObjects(ctx context.Context, tenantName string, kinds ...st
 		prefix = s.objectListPrefix(tenantName, kinds[0])
 	}
 	filter := store.NewKindFilter(kinds)
-	resp, err := s.client.Get(ctx, prefix, clientv3.WithPrefix(), clientv3.WithKeysOnly())
+	resp, err := s.client.Get(ctx, prefix, clientv3.WithPrefix(), clientv3.WithKeysOnly(), clientv3.WithLimit(1))
 	if err != nil {
 		close(out)
 		return out, err
