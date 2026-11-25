@@ -38,9 +38,8 @@ Node 在发布执行状态前检查原始签名字节、接收方、有效期和
 仍携带完整签名计划。`node` 和 `controller` 的生产包编译依赖不包含 etcd，
 由宿主选择具体存储后端；根 Go 模块目前仍包含 etcd 适配器及相关测试。
 
-注册在同一事务中提交 token 使用次数、完整 Node 与重试结果。新 Node 在注册前
-持久化 request ID；token 仍有效时，重试返回同一个 active Node。没有 request ID
-的旧客户端获得原子性，但不保证响应丢失后的幂等恢复。
+注册在同一事务中提交 token 使用次数、完整 Node 与重试结果。通过已有证书注册时，
+Node 在请求前持久化 request ID，可在 token 有效期内重试并找回同一个 active Node。
 签名计划 body 上限为 3 MiB，完整 mesh protobuf 响应为 4 MiB，
 本地 snapshot/journal 解压 JSON 为 64 MiB。超限会拒绝新计划，last-good 的
 原始过期时间保持不变。编译缓存默认保留最多 64 MiB 序列化拓扑，非进程总内存上限。
@@ -77,10 +76,40 @@ setup 需要新目录，为四个进程生成各自独立的部署目录及有�
 
 ## 接入
 
-为 `node.Config` 提供 SPIFFE 身份源、Controller 地址及身份 allowlist、trust domain、
-tenant、首次注册 JoinToken 和独占状态目录。调用 `node.New`、`Start`；服务端使用
-`Listen`、`HTTPHandler` 或 `NewGRPCServer`，客户端使用 `Dial`、`HTTPClient` 或
-`GRPCDialOptions`，退出时调用 `Close`。
+### 无需预装证书即可加入
+
+1. Controller 通过 `controller.WithEnrollment` 接入受信任的 SVID 签发方，
+   并在宿主应用的 HTTPS 服务上挂载 `EnrollmentHandler()`。
+2. 在活动 Controller 上调用 `CreateEnrollmentToken`，指定节点名、租户和
+   SPIFFE 工作负载 ID。每个 token 可成功加入一次，默认有效期 15 分钟。
+3. 新主机调用 `node.Join`，传入加入用的 HTTPS 地址和 token。Node 在本机
+   生成并保存私钥。Controller 验证证书签名请求并注册节点，返回 SVID、
+   Mesh 信任包和 Controller 连接配置。
+
+```go
+cfg, err := node.Join(ctx, node.EnrollmentOptions{
+    URL:      "https://control.example.org/mesh/enroll",
+    Token:    token,
+    StateDir: stateDir,
+})
+if err != nil {
+    return err
+}
+```
+
+如果首次响应丢失，使用原状态目录重试即可在 token 有效期内找回同一个 Node。
+加入完成后，重启时仅用 `StateDir` 调用 `node.Join` 即可恢复配置。
+应用在 SVID 到期前调度 `node.RenewEnrollment`，用现有证书续期，无需重新签发 token。
+[Controller 和 HTTPS 配置](docs/integration.md#managed-enrollment-for-new-nodes)
+
+### 启动 Node
+
+如果部署时已准备好证书，可直接为 `node.Config` 提供 SPIFFE 身份源、Controller
+地址及身份白名单、信任域、租户、首次注册 token 和独占状态目录。
+
+调用 `node.New` 和 `Start`，通过 SPIFFE mTLS 连接 Controller 并应用签名计划。
+服务端使用 `Listen`、`HTTPHandler` 或 `NewGRPCServer`，客户端使用 `Dial`、
+`HTTPClient` 或 `GRPCDialOptions`，退出时调用 `Close`。
 
 Controller 管理 Service、BindGrant、ServiceAccess 和 WorkloadGroup；提供方通过
 认证后的 Catalog API 注册独立 Endpoint 租约。应用用完 HTTP 客户端后关闭空闲连接，

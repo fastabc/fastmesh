@@ -2,10 +2,12 @@ package admission
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"time"
 
+	"github.com/fastabc/fastmesh/internal/protocol/bootstrap"
 	"github.com/fastabc/fastmesh/model"
 	"github.com/fastabc/fastmesh/store"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
@@ -15,20 +17,21 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func peerWorkload(ctx context.Context) (string, error) {
+func peerSVID(ctx context.Context) (string, *x509.Certificate, error) {
 	p, ok := peer.FromContext(ctx)
 	if !ok {
-		return "", status.Error(codes.Unauthenticated, "missing mTLS peer")
+		return "", nil, status.Error(codes.Unauthenticated, "missing mTLS peer")
 	}
 	info, ok := p.AuthInfo.(credentials.TLSInfo)
 	if !ok || len(info.State.PeerCertificates) == 0 {
-		return "", status.Error(codes.Unauthenticated, "missing peer SVID")
+		return "", nil, status.Error(codes.Unauthenticated, "missing peer SVID")
 	}
-	id, err := x509svid.IDFromCert(info.State.PeerCertificates[0])
+	cert := info.State.PeerCertificates[0]
+	id, err := x509svid.IDFromCert(cert)
 	if err != nil {
-		return "", status.Error(codes.Unauthenticated, "invalid peer SVID")
+		return "", nil, status.Error(codes.Unauthenticated, "invalid peer SVID")
 	}
-	return id.String(), nil
+	return id.String(), cert, nil
 }
 
 type Admission struct {
@@ -64,7 +67,7 @@ func (s *Admission) authorizeSession(ctx context.Context, nodeID, requestedTenan
 			return node, err
 		}
 	} else {
-		id, err := peerWorkload(ctx)
+		id, cert, err := peerSVID(ctx)
 		if err != nil {
 			return node, err
 		}
@@ -76,7 +79,8 @@ func (s *Admission) authorizeSession(ctx context.Context, nodeID, requestedTenan
 			return node, status.Error(codes.Internal, "invalid node registration")
 		}
 		// SpiffeID is the bootstrap-owned binding, not reported status.
-		if node.ID != nodeID || node.SpiffeID == "" || node.SpiffeID != id {
+		if node.ID != nodeID || node.SpiffeID == "" || node.SpiffeID != id ||
+			(node.EnrollmentKey != "" && node.EnrollmentKey != bootstrap.KeyID(cert.RawSubjectPublicKeyInfo)) {
 			return node, status.Error(codes.PermissionDenied, "node does not belong to peer")
 		}
 	}

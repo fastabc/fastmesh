@@ -18,9 +18,11 @@ func (c *Controller) Serve(ctx context.Context, listener net.Listener) error {
 	if listener == nil {
 		return errors.New("mesh controller: listener required")
 	}
+	c.addressesMu.Lock()
 	if len(c.cfg.ControllerAddrs) == 0 {
 		c.cfg.ControllerAddrs = []string{listener.Addr().String()}
 	}
+	c.addressesMu.Unlock()
 	opts := []grpc.ServerOption{grpc.MaxConcurrentStreams(128)}
 	if !c.cfg.DevInsecure {
 		cfg, err := spiffe.ServerTLSConfig(ctx, c.cfg.Identity, c.cfg.TrustDomain, false)
@@ -30,7 +32,7 @@ func (c *Controller) Serve(ctx context.Context, listener net.Listener) error {
 		opts = append(opts, grpc.Creds(credentials.NewTLS(cfg)))
 	}
 	if c.ownsElection {
-		c.elector.SetAdvertise(c.cfg.ControllerAddrs[0])
+		c.elector.SetAdvertise(c.controllerAddresses()[0])
 		if _, err := c.elector.TryAcquire(ctx); err != nil {
 			return err
 		}
@@ -60,6 +62,12 @@ func (c *Controller) Serve(ctx context.Context, listener net.Listener) error {
 		return nil
 	}
 	return err
+}
+
+func (c *Controller) controllerAddresses() []string {
+	c.addressesMu.RLock()
+	defer c.addressesMu.RUnlock()
+	return c.cfg.ControllerAddrs
 }
 
 // Run owns expiry reconciliation and, unless injected, lease renewal. Each

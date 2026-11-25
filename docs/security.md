@@ -12,6 +12,15 @@ Replays on another Controller cell reject mismatched region bindings instead of
 redirecting the Node to that cell. Older clients without a request ID cannot recover
 a lost response idempotently.
 
+Managed enrollment uses a distinct token and a signed CSR over HTTPS with
+hostname and server certificate verification. The Controller assigns the SPIFFE
+URI and records the public key binding with the Node. The token use, registered
+Node and certificate chain are committed together. Only the same proved key can
+retrieve that result while the token remains valid. Managed discovery and
+renewal also check the registered key. The host must authorize token creation
+for the requested workload and tenant. Node private keys are generated locally
+and persisted in the protected state directory.
+
 ## Signed plan boundary
 
 The only mesh contract is `fastmesh.plan.v1`, with capability `mesh.plan.v1`.

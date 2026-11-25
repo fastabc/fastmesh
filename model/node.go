@@ -26,10 +26,12 @@ const CellLabel = "fastmesh.io/cell"
 
 // Node is a registered agent with desired intent and reported status.
 type Node struct {
-	Ephemeral     bool              `json:"ephemeral,omitempty"`
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Tenant        string            `json:"tenant"`
+	Ephemeral bool   `json:"ephemeral,omitempty"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Tenant    string `json:"tenant"`
+	// EnrollmentKey is the SHA-256 digest of the managed identity public key.
+	EnrollmentKey string            `json:"enrollment_key,omitempty"`
 	SpiffeID      string            `json:"spiffe_id,omitempty"`
 	ManagedLabels map[string]string `json:"managed_labels,omitempty"`
 	Intent        string            `json:"intent,omitempty"`

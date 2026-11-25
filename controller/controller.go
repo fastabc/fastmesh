@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/fastabc/fastmesh/controller/admission"
@@ -47,6 +48,7 @@ type Config struct {
 	// An injected elector belongs to the embedding product's lifecycle.
 	Elector        *election.Elector
 	grpcRegistrars []func(*grpc.Server)
+	enrollment     *EnrollmentConfig
 }
 
 type Option func(*Config)
@@ -58,6 +60,7 @@ type Controller struct {
 	compileObserver   compileObserver
 	signatureObserver signatureObserver
 	cfg               Config
+	addressesMu       sync.RWMutex
 	objects           store.ObjectStore
 	elector           *election.Elector
 	ownsElection      bool
@@ -88,6 +91,9 @@ func New(cfg Config, opts ...Option) (*Controller, error) {
 	}
 	if !cfg.DevInsecure && cfg.Identity == nil {
 		return nil, errors.New("mesh controller: identity required")
+	}
+	if err := validateEnrollmentConfig(cfg); err != nil {
+		return nil, err
 	}
 	if cfg.EphemeralTTL <= 0 {
 		cfg.EphemeralTTL = 5 * time.Minute

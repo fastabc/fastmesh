@@ -44,7 +44,7 @@ func (s *Bootstrap) Register(ctx context.Context, req *discoveryv1.RegisterReque
 	var err error
 	var peerID string
 	if !s.DevInsecure {
-		peerID, err = peerWorkload(ctx)
+		peerID, _, err = peerSVID(ctx)
 		if err != nil {
 			return nil, err
 		}

@@ -44,8 +44,8 @@ production package dependency graphs do not include etcd; the backend is selecte
 by the host. The root Go module currently includes the etcd adapter and its tests.
 
 Enrollment commits the token use, complete Node and retry result atomically.
-New Nodes persist a request ID before enrollment; retries recover the same active
-Node while the token remains valid. Older clients without this ID only gain atomicity.
+When enrolling with an existing certificate, Nodes persist a request ID before
+registration so they can recover the same active Node while the token remains valid.
 The signed plan body is limited to 3 MiB, the complete mesh protobuf response to
 4 MiB, and decoded local snapshot/journal JSON to 64 MiB. Oversized plans fail
 closed; existing last-good policy keeps its original expiry. Compiler cache retention
@@ -84,9 +84,44 @@ After the release tag is published, applications can install it with
 
 ## Integration
 
-Configure `node.Config` with a SPIFFE identity source, Controller addresses and
-identity allowlist, trust domain, tenant, join token and exclusive state directory.
-Call `node.New`, `Start`, then bind a service with `Listen`, `HTTPHandler` or
+### Join a Node without a preinstalled certificate
+
+1. On the Controller, enable `controller.WithEnrollment` with a trusted SVID
+   issuer and mount `EnrollmentHandler()` on the host application's HTTPS server.
+2. On the active Controller, call `CreateEnrollmentToken` with the Node name,
+   tenant and SPIFFE workload ID. The single-use token defaults to a 15-minute
+   lifetime.
+3. On the new host, pass the enrollment HTTPS URL and token to `node.Join`.
+   The Node generates and stores its private key locally. The Controller
+   verifies the certificate signing request, registers the Node, and returns
+   its SVID, mesh trust bundle and Controller settings.
+
+```go
+cfg, err := node.Join(ctx, node.EnrollmentOptions{
+    URL:      "https://control.example.org/mesh/enroll",
+    Token:    token,
+    StateDir: stateDir,
+})
+if err != nil {
+    return err
+}
+```
+
+Use the same state directory when retrying a lost response. The original key
+recovers the committed Node while the token is valid. After joining, call
+`node.Join` with only `StateDir` to reload the saved configuration on restart.
+The application schedules `node.RenewEnrollment` before the SVID expires.
+Renewal uses the current SVID and requires no token.
+[Controller and HTTPS setup](docs/integration.md#managed-enrollment-for-new-nodes)
+
+### Start the Node
+
+For deployments with preprovisioned credentials, construct `node.Config` with
+the SPIFFE identity source, Controller addresses and identity allowlist, trust
+domain, tenant, join token and exclusive state directory.
+
+Call `node.New` with the configuration, then `Start` to connect over SPIFFE mTLS
+and apply a signed plan. Bind a service with `Listen`, `HTTPHandler` or
 `NewGRPCServer`; clients use `Dial`, `HTTPClient` or `GRPCDialOptions`. Always call `Close`.
 The Controller owns Services, BindGrants, ServiceAccess rules and WorkloadGroups.
 Providers register independent Endpoint leases through the authenticated Catalog API.

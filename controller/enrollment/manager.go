@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -17,8 +18,9 @@ import (
 )
 
 const (
-	KindJoinToken = "JoinToken"
-	tokenPrefix   = "fgjt"
+	KindJoinToken      = "JoinToken"
+	tokenPrefix        = "fgjt"
+	managedTokenPrefix = "fmjoin"
 )
 
 var (
@@ -76,7 +78,8 @@ type Token struct {
 
 type storedToken struct {
 	Token
-	SecretHash string `json:"secret_hash"`
+	SecretHash string           `json:"secret_hash"`
+	Managed    *ManagedIdentity `json:"managed,omitempty"`
 }
 
 // CreateRequest describes one token creation.
@@ -97,6 +100,10 @@ type CreateResponse struct {
 
 // Create creates and stores a new join token.
 func (m *Manager) Create(ctx context.Context, req CreateRequest) (CreateResponse, error) {
+	return m.create(ctx, req, nil)
+}
+
+func (m *Manager) create(ctx context.Context, req CreateRequest, managed *ManagedIdentity) (CreateResponse, error) {
 	now := m.clock().UTC()
 	id, err := randomPart(m.rand, 16)
 	if err != nil {
@@ -120,7 +127,12 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (CreateResponse
 	if req.TTL > 0 {
 		t.ExpiresAt = now.Add(req.TTL)
 	}
-	stored := storedToken{Token: t, SecretHash: hashSecret(secret)}
+	prefix, secretInput := tokenPrefix, secret
+	if managed != nil {
+		// Older controllers cannot redeem a managed token by changing its prefix.
+		prefix, secretInput = managedTokenPrefix, managedTokenPrefix+"."+secret
+	}
+	stored := storedToken{Token: t, SecretHash: hashSecret(secretInput), Managed: managed}
 	data, err := json.Marshal(stored)
 	if err != nil {
 		return CreateResponse{}, err
@@ -135,7 +147,7 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (CreateResponse
 	}); err != nil {
 		return CreateResponse{}, err
 	}
-	return CreateResponse{Token: t, Raw: tokenPrefix + "." + id + "." + secret}, nil
+	return CreateResponse{Token: t, Raw: prefix + "." + id + "." + secret}, nil
 }
 
 // Get returns token metadata by ID.
@@ -171,9 +183,18 @@ func (m *Manager) List(ctx context.Context) ([]Token, error) {
 }
 
 func (m *Manager) Revoke(ctx context.Context, id string) error {
+	return m.revoke(ctx, id, false)
+}
+
+// RevokeManaged revokes the token only if it was issued for managed enrollment.
+func (m *Manager) RevokeManaged(ctx context.Context, id string) error {
+	return m.revoke(ctx, id, true)
+}
+
+func (m *Manager) revoke(ctx context.Context, id string, managedOnly bool) error {
 	unchanged := errors.New("token already revoked")
 	_, err := store.UpdateJSON(ctx, m.objects, store.ObjectKey{Tenant: model.SystemTenant, Kind: KindJoinToken, Name: id}, 32, func(stored *storedToken, exists bool) error {
-		if !exists {
+		if !exists || (managedOnly && stored.Managed == nil) {
 			return store.ErrNotFound
 		}
 		if !stored.RevokedAt.IsZero() {
@@ -197,6 +218,9 @@ func (m *Manager) Validate(ctx context.Context, raw string) (Token, error) {
 	stored, err := m.getStored(ctx, id)
 	if err != nil {
 		return Token{}, err
+	}
+	if stored.Managed != nil {
+		return Token{}, ErrInvalidToken
 	}
 	if err := m.validate(stored, secret, true); err != nil {
 		return Token{}, err
@@ -225,8 +249,12 @@ func decodeStored(data []byte) (storedToken, error) {
 }
 
 func parseRaw(raw string) (id, secret string, err error) {
+	return parseRawWithPrefix(raw, tokenPrefix)
+}
+
+func parseRawWithPrefix(raw, prefix string) (id, secret string, err error) {
 	parts := strings.Split(raw, ".")
-	if len(parts) != 3 || parts[0] != tokenPrefix || parts[1] == "" || parts[2] == "" {
+	if len(parts) != 3 || parts[0] != prefix || parts[1] == "" || parts[2] == "" {
 		return "", "", ErrInvalidToken
 	}
 	return parts[1], parts[2], nil
@@ -266,6 +294,9 @@ func (m *Manager) Consume(ctx context.Context, raw string) (Token, error) {
 		if !exists {
 			return store.ErrNotFound
 		}
+		if stored.Managed != nil {
+			return ErrInvalidToken
+		}
 		if err := m.validate(*stored, secret, true); err != nil {
 			return err
 		}
@@ -281,7 +312,7 @@ func (m *Manager) Consume(ctx context.Context, raw string) (Token, error) {
 
 // Exhaustion prevents new registrations, but not retrieval of a committed result.
 func (m *Manager) validate(stored storedToken, secret string, checkUses bool) error {
-	if stored.SecretHash != hashSecret(secret) {
+	if subtle.ConstantTimeCompare([]byte(stored.SecretHash), []byte(hashSecret(secret))) != 1 {
 		return ErrInvalidToken
 	}
 	if !stored.RevokedAt.IsZero() {

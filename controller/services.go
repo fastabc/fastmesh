@@ -20,7 +20,7 @@ func (c *Controller) RegisterServices(gs *grpc.Server) {
 	dcfg.Builder = discovery.BuilderFunc(c.build)
 	dcfg.Watch = c.watch
 	discoveryv1.RegisterDiscoveryServer(gs, discovery.New(dcfg))
-	discoveryv1.RegisterBootstrapServer(gs, &admission.Bootstrap{Objects: c.objects, Tokens: c.tokens, DevInsecure: c.cfg.DevInsecure, Region: c.cfg.Region, TrustDomain: c.cfg.TrustDomain, ControllerAddrs: c.cfg.ControllerAddrs, AuthorizeWrite: c.requireLeader, CellLabel: c.cfg.CellLabel})
+	discoveryv1.RegisterBootstrapServer(gs, &admission.Bootstrap{Objects: c.objects, Tokens: c.tokens, DevInsecure: c.cfg.DevInsecure, Region: c.cfg.Region, TrustDomain: c.cfg.TrustDomain, ControllerAddrs: c.controllerAddresses(), AuthorizeWrite: c.requireLeader, CellLabel: c.cfg.CellLabel})
 	catalogv1.RegisterCatalogServer(gs, &catalogrpc.Server{Manager: c.endpoints, AuthorizeSession: func(ctx context.Context, id string) (model.Session, error) {
 		session, err := c.authorize(ctx, id, "")
 		return session.Principal, err
